@@ -1,0 +1,23 @@
+# `docs` on its own ignored the whole folder, so docs/notes.md -- the lab log, every
+# finding, the defence sheet -- was never committed and existed only on one laptop.
+# `docs/*` + a negation lets that one file through while the workshop binaries stay out.
+# (A bare `docs` cannot be un-ignored per-file: git never descends into it.)
+docs/*
+!docs/notes.md
+
+__pycache__
+__pycache__/
+*.py[cod]
+.venv
+.DS_Store
+pll_lock_check.png
+runs.txt
+
+# Datasets. The ones already committed under LFS stay committed; these are the ones
+# deliberately kept out. famF_W40 is referenced by nothing -- no script, no config, no
+# sweep record -- and was 2 GB of the ~6 GB LFS footprint.
+data/famG_W40.npz
+data/famF_W40.npz
+#*.npz
+#data/*.npz
+

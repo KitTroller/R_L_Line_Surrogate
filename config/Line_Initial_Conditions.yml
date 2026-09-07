@@ -1,0 +1,15 @@
+ranges:
+  frequency_offset: [-0.3, 0.3]  # Hz
+  envelope_rate: [0.5, 2.0]  # p.u.
+  ic_magnitude: [0, 1]  # p.u.
+  ic_angle: [-3.141592653589793, 3.141592653589793]  # rad
+
+disturbances:
+  enabled: true
+  fraction: 0.5  # percentage of runs we get a fault on
+  start: [0.05,0.40]
+  sag:
+    depth: [0.5, 0.95]  # p.u.
+    duration: [0.02, 0.10]  # s
+  phase_jump:
+    angle_deg: [-60, 60]  # degrees

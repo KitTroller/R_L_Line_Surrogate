@@ -1,0 +1,7 @@
+Rc: 0.005
+Xc: 0.1
+f_0: 50
+n_runs: 5000
+sensors: 5000
+time_horizon: 0.5  # s
+Windows: 40
