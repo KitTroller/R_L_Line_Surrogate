@@ -32,9 +32,10 @@ class Line_Simulator():
         self.physics = Line_Physics()
         self.time_horizon = line_constants.time_horizon
         self.n_runs = line_constants.n_runs
-        self.S = line_constants.sensors
-        self.dt = self.time_horizon / self.S
+        self.sensors = line_constants.sensors
         self.W = line_constants.Windows
+        self.S = int(self.sensors//self.W)
+        self.dt = self.time_horizon / self.sensors
         self.t = (torch.arange(self.S) * self.dt).reshape(1, self.S)
     
     def trajectory(self, init_magnitude, init_phase, freq_offset, envelope_rate, B):  # We are adding an exponential decay on top of the steady state sinusoid. B is the magnitude of that and envelope rate how fast it decays
@@ -47,7 +48,7 @@ class Line_Simulator():
         didt =  envelope_rate * A * torch.cos(phase) - A * omega_g * torch.sin(phase) - (B / self.physics.t_constant) * h
         return i, didt
     
-    def batch(self, i0_magnitude, i0_phase, freq_offset, envelope_rate, B):
+    def batch(self, freq_offset, envelope_rate, i0_magnitude, i0_phase, B):
         i, didt = self.trajectory(i0_magnitude, i0_phase, freq_offset, envelope_rate, B)
         delta_V = self.physics.get_delta_V(i, didt)
         return delta_V, i
