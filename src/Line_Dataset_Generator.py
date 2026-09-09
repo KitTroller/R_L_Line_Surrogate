@@ -114,7 +114,7 @@ if __name__ == "__main__":
     t  = rec["t_local"] * 1e3   # ms
     fig, ax = plt.subplots(2, 2, figsize=(11, 7))
 
-    # 1 - one window. dv is ~10x smaller than i, so twin axis.
+    # 1 - one window. dv is 'bout 10x smaller than i, so twin axis.
     a = ax[0][0]; a2 = a.twinx()
     for k in range(3):
         a.plot(t, rec["i"][k], lw=1.0)
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     e   = (num - didt[:,1:-1])
     a = ax[1][0]; a.plot(t[1:-1], e[0], lw=.9)
     a.set_xlabel("t [ms]"); a.set_ylabel("error [pu/s]")
-    a.set_title(f"T2b  rel {e.abs().max()/didt.abs().max():.1e}   want ~1e-8")
+    a.set_title(f"T2b  rel {e.abs().max()/didt.abs().max():.1e}   want 'round e-4")
 
     # 4 - phase portrait over a FULL trajectory: the spiral is the B mode
     tr = g.build_trajectories()

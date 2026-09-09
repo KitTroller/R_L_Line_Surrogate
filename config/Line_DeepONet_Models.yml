@@ -1,0 +1,11 @@
+hidden_dim: 64
+output_dim: 1
+number_of_fourier_feats: 4
+max_fourier_feat_frequency: 628
+activation: tanh
+
+sizes:
+  trunk_net: [1, 64, 64, 64]
+  branch_net: [1, 64, 64, 64]  # 1 forcing input not 3! We use different NN for different phases
+  pinn_net: [135, 64, 64, 1]  # made to take 4 ff
+
