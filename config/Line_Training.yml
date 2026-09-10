@@ -1,0 +1,20 @@
+dataset: line_stage_A.npz
+val_frac: 0.15
+seed: 0
+split_seed: 0
+epochs: 800
+patience: 40
+batch_size: 512
+lr: 3.0e-3
+w_phys: 0.3
+w_deriv: 0.0
+arch: deepONet
+device: auto
+n_eval_traj: 300
+runs_dir: runs_dirresults_dir: sweeps
+model:
+  F: 4
+  max_freq: 628
+  hidden_dim: 64
+  n_layers: null
+  width: null
