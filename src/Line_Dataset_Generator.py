@@ -60,11 +60,12 @@ class Dataset_Generator():
     
     def build_training_set(self):
         parameters = self.get_init_condition_space()
-        dv, i = self.line_simulator.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])  # final arg is B not beta (scaled according to I0)
+        dv, i, didt = self.line_simulator.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])  # final arg is B not beta (scaled according to I0)
         i0 = i[:, 0]
         records = {
             "i":        i,                                      # (n,S)  the target
             "delta_v":  dv,                                     # (n,S)  the branch function
+            "di/dt":    didt,
             "i0":       i0,                                     # (n,)   the branch scalar
             "t_local":  self.line_simulator.t.squeeze(0),       # (S,)   the trunk input
             "params":   torch.as_tensor(parameters),            # (n,5)  provenance
@@ -80,10 +81,10 @@ class Dataset_Generator():
         horizon_simulation.S = S * W
         horizon_simulation.t = (torch.arange(horizon_simulation.S) * horizon_simulation.dt).reshape(-1,horizon_simulation.S)
         parameters = self.get_init_condition_space(n_runs=n__full_trajectories)
-        dv, i = horizon_simulation.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])
+        dv, i, didt = horizon_simulation.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])
         win = lambda x: x.unfold(1, S, S).reshape(-1, S)  # (n_traj*W, S)
         return {
-            "i": win(i), "delta_v": win(dv),
+            "i": win(i), "delta_v": win(dv), "di/dt": didt,
             "i0": win(i)[:, 0],
             "t_local": self.line_simulator.t.squeeze(0),
             "run_id":     torch.arange(n__full_trajectories).repeat_interleave(W),

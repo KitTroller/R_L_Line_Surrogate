@@ -51,4 +51,4 @@ class Line_Simulator():
     def batch(self, freq_offset, envelope_rate, i0_magnitude, i0_phase, B):
         i, didt = self.trajectory(i0_magnitude, i0_phase, freq_offset, envelope_rate, B)
         delta_V = self.physics.get_delta_V(i, didt)
-        return delta_V, i
+        return delta_V, i, didt # returning didt also sonce we have it for extra physocs residual validation

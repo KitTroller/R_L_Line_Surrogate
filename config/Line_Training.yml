@@ -11,7 +11,8 @@ w_deriv: 0.0
 arch: deepONet
 device: auto
 n_eval_traj: 300
-runs_dir: runs_dirresults_dir: sweeps
+runs_dir: runs_dir
+results_dir: sweeps
 model:
   F: 4
   max_freq: 628
