@@ -72,25 +72,25 @@ class Dataset_Generator():
         }
         return records, self.build_meta()
     
-    def build_trajectories(self):  # Produces a baseline for recurrent rollout testing
+    def build_trajectories(self, n_traj=300):  # Produces a baseline for recurrent rollout testing
         W = self.W
         S = self.S
-        
-        n__full_trajectories = self.n_runs
+
+        n__full_trajectories = n_traj
         horizon_simulation = Line_Simulator()
         horizon_simulation.S = S * W
         horizon_simulation.t = (torch.arange(horizon_simulation.S) * horizon_simulation.dt).reshape(-1,horizon_simulation.S)
         parameters = self.get_init_condition_space(n_runs=n__full_trajectories)
         dv, i, didt = horizon_simulation.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])
         win = lambda x: x.unfold(1, S, S).reshape(-1, S)  # (n_traj*W, S)
-        return {
+        records = {
             "i": win(i), "delta_v": win(dv), "di/dt": win(didt),
             "i0": win(i)[:, 0],
             "t_local": self.line_simulator.t.squeeze(0),
             "run_id":     torch.arange(n__full_trajectories).repeat_interleave(W),
             "segment_id": torch.arange(W).repeat(n__full_trajectories),
-            "meta" : self.build_meta()
         }
+        return records, {**self.build_meta(), "n_runs": n__full_trajectories}
         
     def save_dataset(self, records, meta, path="line_stage_A.npz"):
         out = {}
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     a.set_title(f"T2b  rel {e.abs().max()/didt.abs().max():.1e}   want 'round e-4")
 
     # 4 - phase portrait over a FULL trajectory: the spiral is the B mode
-    tr = g.build_trajectories()
+    tr, _ = g.build_trajectories()
     a = ax[1][1]
     a.plot(tr["i"][:40].reshape(-1), tr["delta_v"][:40].reshape(-1), lw=.5)
     a.set_xlabel("i [pu]"); a.set_ylabel("delta_v [pu]")

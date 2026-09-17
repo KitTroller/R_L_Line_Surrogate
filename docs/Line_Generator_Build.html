@@ -1,0 +1,1453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building the Line Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#f3f6fb; --card:#ffffff; --sunk:#eef2f9;
+  --ink:#14171f; --ink2:#4b5262; --ink3:#7d8598;
+  --line:#dbe1ed; --line2:#c3cbdc;
+  --accent:#1f4ea8; --accent-soft:#e6ecf9; --on-accent:#ffffff;
+  --flag:#a8371c; --flag-soft:#fbeae5;
+  --ok:#12604a; --ok-soft:#e2f2ec;
+  --note:#7d5205; --note-soft:#faf0dc;
+  --mono-bg:#eef1f7;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1117; --card:#171b23; --sunk:#12161d;
+    --ink:#e7eaf1; --ink2:#a6aebe; --ink3:#798193;
+    --line:#262c37; --line2:#39414f;
+    --accent:#89aef3; --accent-soft:#182339; --on-accent:#0e1117;
+    --flag:#ef9376; --flag-soft:#301a14;
+    --ok:#71cfad; --ok-soft:#122b24;
+    --note:#e0b45f; --note-soft:#2b2211;
+    --mono-bg:#1d222b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1117; --card:#171b23; --sunk:#12161d;
+  --ink:#e7eaf1; --ink2:#a6aebe; --ink3:#798193;
+  --line:#262c37; --line2:#39414f;
+  --accent:#89aef3; --accent-soft:#182339; --on-accent:#0e1117;
+  --flag:#ef9376; --flag-soft:#301a14;
+  --ok:#71cfad; --ok-soft:#122b24;
+  --note:#e0b45f; --note-soft:#2b2211;
+  --mono-bg:#1d222b;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  font-size:16px;line-height:1.62;padding:0 20px 100px;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:960px;margin:0 auto}
+
+/* masthead */
+.mast{padding:44px 0 20px;border-bottom:2px solid var(--ink);margin-bottom:0}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent);margin:0 0 10px;font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-size:clamp(29px,4.2vw,40px);font-weight:600;
+  line-height:1.12;letter-spacing:-.02em;margin:0 0 12px;text-wrap:balance}
+.standfirst{color:var(--ink2);font-size:17px;margin:0 0 14px;max-width:66ch}
+.mast-meta{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink3);
+  display:flex;flex-wrap:wrap;gap:6px 18px;margin:0}
+
+/* tier bar */
+.tierbar{position:sticky;top:0;z-index:20;background:var(--bg);
+  border-bottom:1px solid var(--line);padding:12px 0 12px;margin-bottom:30px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tierbar .lab{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink3);font-weight:600}
+.tiers{display:flex;gap:6px;flex-wrap:wrap}
+.tierbtn{font-family:"IBM Plex Mono",monospace;font-size:12.5px;font-weight:500;
+  padding:6px 13px;border-radius:5px;border:1px solid var(--line2);
+  background:var(--card);color:var(--ink2);cursor:pointer;line-height:1.3}
+.tierbtn:hover{border-color:var(--accent);color:var(--ink)}
+.tierbtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
+  color:var(--on-accent);font-weight:600}
+.tierhint{font-size:13px;color:var(--ink3);margin:0;flex:1 1 260px;min-width:0}
+
+/* tier visibility */
+[data-tier]{display:none}
+body[data-level="guided"] [data-tier~="guided"],
+body[data-level="skeleton"] [data-tier~="skeleton"],
+body[data-level="spec"] [data-tier~="spec"]{display:block}
+
+/* structure */
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-size:25px;font-weight:600;
+  letter-spacing:-.015em;margin:0 0 4px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:26px 0 8px;letter-spacing:-.005em;text-wrap:balance}
+h4{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink3);margin:24px 0 8px}
+p{margin:0 0 12px;max-width:68ch}
+ul,ol{margin:0 0 14px;padding-left:22px;max-width:68ch}
+li{margin:6px 0}
+li::marker{color:var(--ink3)}
+a{color:var(--accent)}
+section.part{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:26px 30px 24px;margin:0 0 20px}
+.part-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.num{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--accent);
+  background:var(--accent-soft);border-radius:4px;padding:3px 8px;white-space:nowrap;letter-spacing:.06em}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;padding:3px 8px;border-radius:4px;white-space:nowrap;border:1px solid}
+.t-ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
+.t-flag{background:var(--flag-soft);color:var(--flag);border-color:var(--flag)}
+.t-note{background:var(--note-soft);color:var(--note);border-color:var(--note)}
+.why{color:var(--ink2);font-size:15px;margin:0 0 16px;max-width:68ch}
+
+/* code */
+code{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.87em;
+  background:var(--mono-bg);padding:1.5px 5px;border-radius:4px}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;margin:0 0 14px;font-size:12.8px;line-height:1.62}
+pre code{background:none;padding:0;font-size:12.8px}
+.eq{background:var(--sunk);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;
+  padding:14px 18px;margin:0 0 14px;overflow-x:auto;font-family:"IBM Plex Mono",monospace;
+  font-size:13.2px;line-height:1.85}
+.eq .an{color:var(--ink3)}
+.cmt{color:var(--ink3)}
+
+/* contract block */
+.contract{border:1px solid var(--line2);border-radius:8px;margin:0 0 16px;overflow:hidden}
+.contract .row{display:grid;grid-template-columns:112px 1fr;gap:0;border-bottom:1px solid var(--line)}
+.contract .row:last-child{border-bottom:none}
+.contract .k{background:var(--sunk);font-family:"IBM Plex Mono",monospace;font-size:11px;
+  font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);
+  padding:10px 12px;border-right:1px solid var(--line)}
+.contract .v{padding:10px 14px;font-size:14px}
+.contract .v code{font-size:12.6px}
+@media (max-width:560px){.contract .row{grid-template-columns:1fr}
+  .contract .k{border-right:none;border-bottom:1px solid var(--line)}}
+
+/* callouts */
+.box{border:1px solid;border-left-width:3px;border-radius:0 8px 8px 0;padding:14px 18px;
+  margin:0 0 16px;font-size:15px}
+.box > :last-child{margin-bottom:0}
+.box .lbl{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;display:block;margin-bottom:6px}
+.b-flag{background:var(--flag-soft);border-color:var(--flag)}.b-flag .lbl{color:var(--flag)}
+.b-ok{background:var(--ok-soft);border-color:var(--ok)}.b-ok .lbl{color:var(--ok)}
+.b-note{background:var(--note-soft);border-color:var(--note)}.b-note .lbl{color:var(--note)}
+.b-ref{background:var(--accent-soft);border-color:var(--accent)}.b-ref .lbl{color:var(--accent)}
+
+/* tables */
+.scroll{overflow-x:auto;margin:0 0 16px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--sunk);font-family:"IBM Plex Mono",monospace;font-size:11px;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.n,th.n{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.hi td{background:var(--accent-soft)}
+
+/* figures */
+figure{margin:0 0 18px}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink)}
+figcaption{font-size:13.5px;color:var(--ink2);margin-top:10px;padding-left:12px;
+  border-left:2px solid var(--line2);max-width:70ch}
+
+/* misc */
+.rule{height:1px;background:var(--line);margin:32px 0 28px;border:none}
+.checklist{list-style:none;padding-left:0}
+.checklist li{padding-left:26px;position:relative;margin:8px 0}
+.checklist li::before{content:"\2610";position:absolute;left:0;top:0;
+  font-family:"IBM Plex Mono",monospace;color:var(--accent);font-size:15px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0 0 16px}
+.split > div{min-width:0}
+.split h4{margin-top:0}
+@media (max-width:700px){.split{grid-template-columns:1fr}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:620px){body{padding:0 14px 70px}section.part{padding:20px 18px 18px}}
+</style>
+</head>
+<body data-level="guided">
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Rc_Lc_Line_attempt · docs</p>
+  <h1>Building the Line Generator</h1>
+  <p class="standfirst">Four files — <code>Line_Physics.py</code>, <code>Line_Dataset_Generator.py</code>, <code>line_operator.py</code>, <code>line_residual.py</code> — at three depths. Read the confusions first; they are all the same confusion wearing different hats.</p>
+  <p class="mast-meta">
+    <span>ℓ = 3.1831e-4 s</span><span>τ = 63.662 ms</span><span>|Z| = 0.100125 pu ∠ 87.138°</span><span>no integrator</span>
+  </p>
+</header>
+
+<div class="tierbar">
+  <span class="lab">Depth</span>
+  <div class="tiers" role="group" aria-label="Detail level">
+    <button class="tierbtn" data-set="guided"   aria-pressed="true">1 · Guided</button>
+    <button class="tierbtn" data-set="skeleton" aria-pressed="false">2 · Skeleton</button>
+    <button class="tierbtn" data-set="spec"     aria-pressed="false">3 · Spec</button>
+  </div>
+  <p class="tierhint" id="hint">Guided: near-complete code with commentary. Use it to get unstuck, then re-read at level 2.</p>
+</div>
+
+<!-- ================= CONFUSIONS ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">A</span><h2>Your three confusions, in order</h2></div>
+
+  <h3>1 · "How do I do this without an integrator?"</h3>
+  <p>You stop stepping through time. That is the whole answer. Compare what you wrote for the PLL against what you will write here:</p>
+
+  <div class="split">
+    <div>
+      <h4>PLL — forward</h4>
+<pre><code>theta = torch.zeros(n, N)
+for k in range(1, N):            <span class="cmt"># 5000 steps</span>
+    th, om, vd, vq = \
+      self._integrator_step_trapezoid(
+        theta[:,k-1], omega[:,k-1],
+        Vq[:,k-1], Va[:,k], Vb[:,k], Vc[:,k])
+    <span class="cmt"># ... and a Newton loop inside</span>
+    theta[:,k] = th</code></pre>
+    </div>
+    <div>
+      <h4>Line — backward</h4>
+<pre><code>i    = A*cos(th) + B*h           <span class="cmt"># (n, S) at once</span>
+didt = A*r*cos(th) - A*wg*sin(th) - (B/tau)*h
+dv   = ell*didt + R*i
+
+<span class="cmt"># no k, no loop, no Newton, no tolerance</span></code></pre>
+    </div>
+  </div>
+
+  <p>Three array expressions evaluated on the whole time grid simultaneously. There is nothing to iterate because you never solve anything — you <em>differentiate</em>, and differentiation of a formula you wrote down yourself is just more formula.</p>
+
+  <div class="box b-flag">
+    <span class="lbl">The one rule</span>
+    <p>Write <code>didt</code> out by hand from calculus. Never <code>np.gradient</code>, never <code>torch.diff</code>. Finite differences amplify error by 1/dt = 10⁴ at dt = 100 µs; in float32 that is 1.2e-3 of noise sitting on an envelope signal of 4.4e-4 — nearly 3× larger than the thing you are trying to learn. Analytic derivative, and <code>float64</code>.</p>
+  </div>
+
+  <h3>2 · "What is envelope rate as an initial condition?"</h3>
+  <p>It isn't one, and that is why it feels wrong. Your LHS space was never a space of initial conditions — not even in the PLL. It is a space of <strong>scenario parameters</strong>, and it has always had two different kinds of thing in it:</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>kind</th><th>what it does</th><th class="n">PLL_Attempt</th><th class="n">here</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>forcing parameters</strong></td>
+          <td>shape the <em>input function</em> the operator reads through its branch</td>
+          <td class="n">initial_grid_angle<br>frequency_offset<br>amplitude_offset</td>
+          <td class="n">I0, phi<br>freq_offset<br><strong>env_rate</strong></td>
+        </tr>
+        <tr>
+          <td><strong>true initial conditions</strong></td>
+          <td>set the state at t = 0; one scalar per state variable</td>
+          <td class="n">theta_pll<br>omega_pll</td>
+          <td class="n"><strong>B</strong> (equivalently i₀)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Wang &amp; Perdikaris hit this exact wall in §4.1 and their fix is equation 4.11: <strong>two branch networks</strong>, one for the forcing function, one for the initial condition. You already do the same thing without noticing — your branch is <code>[sin θ₀, cos θ₀, ω₀, Va, Vb, Vc]</code>, which is three IC scalars concatenated with three sampled functions.</p>
+
+  <p>So: <code>env_rate</code> is a <em>property of the current profile</em>, not a state. Concretely it is one number <code>r</code> in units of 1/s, and the amplitude is <code>A(t) = I₀·exp(r·t)</code>:</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>you want</th><th class="n">r [1/s]</th><th class="n">ℓ·r contribution to Δv</th><th>stage</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td>steady state — amplitude never changes</td><td class="n">0</td><td class="n">0</td><td>A · start here</td></tr>
+        <tr><td>amplitude doubles over 0.5 s</td><td class="n">+1.386</td><td class="n">+0.00044</td><td>B</td></tr>
+        <tr><td>amplitude halves over 0.5 s</td><td class="n">−1.386</td><td class="n">−0.00044</td><td>B</td></tr>
+        <tr><td>1 pu → 0.1 pu in 10 ms (fault)</td><td class="n">−230.3</td><td class="n">−0.0733</td><td>C</td></tr>
+        <tr><td>1 pu → 0.1 pu in 5 ms (fault)</td><td class="n">−460.5</td><td class="n">−0.1466</td><td>C</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>For reference the line's own natural rate is 1/τ = 15.7 /s, so your supervisor's fault profiles are driving the current down <strong>15–29× faster than the line would decay on its own.</strong> That is the converter fighting the inductor, and it is exactly why he said the rate "depends on the converter and how much voltage it can produce".</p>
+
+  <h3>3 · "What is the fault severity dimension?"</h3>
+  <div class="box b-ok">
+    <span class="lbl">Delete it for now</span>
+    <p>Your supervisor just told you to: <em>"I suggest we start with the steady-state case and then add the decaying/increasing currents later."</em> Stage A has <strong>no fault axis and no envelope axis at all</strong> — <code>r = 0</code> everywhere. When his profiles arrive, a fault is nothing more exotic than a large negative <code>r</code> applied over part of the window. One number, same code path.</p>
+  </div>
+</section>
+
+<!-- ================= THE STRUCTURAL CHANGE ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">B</span><h2>Train on windows, not trajectories</h2><span class="tag t-flag">Changes the whole file</span></div>
+  <p class="why">This is the piece that makes everything downstream simple, and it is a freedom you only get because you are generating backwards.</p>
+
+  <p>In <code>PLL_Attempt</code> you had no choice: forward integration produces a <em>trajectory</em>, so you simulated 0.5 s and chopped it into W windows with <code>unfold</code>. Every window's i₀ was whatever the previous window happened to end at.</p>
+
+  <p>Backwards, nothing forces that. You can write down a valid <code>(i₀, Δv, i)</code> triple on a bare 12.5 ms grid without any trajectory existing around it. So sample each training window <strong>independently</strong>, with its own i₀ drawn as wide as you like.</p>
+
+  <figure>
+    <svg viewBox="0 0 880 220" role="img" aria-label="Chopping one trajectory gives correlated narrow initial conditions; sampling windows independently covers the initial condition space the rollout actually visits.">
+      <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,1 10,5 0,9" fill="currentColor"/></marker></defs>
+      <text x="16" y="20" font-family="IBM Plex Mono,monospace" font-size="11.5" letter-spacing="1.3" fill="currentColor" opacity=".55">PLL_ATTEMPT — CHOP ONE TRAJECTORY</text>
+      <line x1="16" y1="70" x2="420" y2="70" stroke="currentColor" stroke-width="1.3" opacity=".35"/>
+      <g stroke="currentColor" stroke-width="1.1" opacity=".35">
+        <line x1="16" y1="62" x2="16" y2="78"/><line x1="97" y1="62" x2="97" y2="78"/>
+        <line x1="178" y1="62" x2="178" y2="78"/><line x1="259" y1="62" x2="259" y2="78"/>
+        <line x1="340" y1="62" x2="340" y2="78"/><line x1="420" y1="62" x2="420" y2="78"/>
+      </g>
+      <g fill="currentColor"><circle cx="16" cy="70" r="3.4"/><circle cx="97" cy="70" r="3.4"/><circle cx="178" cy="70" r="3.4"/><circle cx="259" cy="70" r="3.4"/><circle cx="340" cy="70" r="3.4"/></g>
+      <text x="218" y="102" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="11.5" fill="currentColor" opacity=".7">every i₀ is the previous window's endpoint</text>
+      <text x="218" y="119" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="11.5" fill="currentColor" opacity=".7">→ correlated, and narrow</text>
+
+      <text x="470" y="20" font-family="IBM Plex Mono,monospace" font-size="11.5" letter-spacing="1.3" fill="currentColor" opacity=".55">HERE — SAMPLE WINDOWS INDEPENDENTLY</text>
+      <g stroke="currentColor" stroke-width="1.3" opacity=".35">
+        <line x1="470" y1="46" x2="551" y2="46"/><line x1="470" y1="62" x2="551" y2="62"/>
+        <line x1="470" y1="78" x2="551" y2="78"/><line x1="470" y1="94" x2="551" y2="94"/>
+        <line x1="600" y1="46" x2="681" y2="46"/><line x1="600" y1="62" x2="681" y2="62"/>
+        <line x1="600" y1="78" x2="681" y2="78"/><line x1="600" y1="94" x2="681" y2="94"/>
+      </g>
+      <g fill="currentColor">
+        <circle cx="470" cy="46" r="3.4"/><circle cx="470" cy="62" r="3.4"/><circle cx="470" cy="78" r="3.4"/><circle cx="470" cy="94" r="3.4"/>
+        <circle cx="600" cy="46" r="3.4"/><circle cx="600" cy="62" r="3.4"/><circle cx="600" cy="78" r="3.4"/><circle cx="600" cy="94" r="3.4"/>
+      </g>
+      <text x="700" y="58" font-family="IBM Plex Mono,monospace" font-size="11.5" fill="currentColor" opacity=".7">i₀ drawn by LHS</text>
+      <text x="700" y="75" font-family="IBM Plex Mono,monospace" font-size="11.5" fill="currentColor" opacity=".7">→ covers the drift</text>
+      <text x="700" y="92" font-family="IBM Plex Mono,monospace" font-size="11.5" fill="currentColor" opacity=".7">→ the rollout creates</text>
+
+      <line x1="16" y1="160" x2="200" y2="160" stroke="currentColor" stroke-width="1.4" marker-end="url(#a1)"/>
+      <text x="212" y="164" font-family="IBM Plex Sans,sans-serif" font-size="13.5" fill="currentColor">trajectories are still needed — but only for the <tspan font-weight="600">evaluation</tspan> set, to measure rollout</text>
+    </svg>
+    <figcaption>Wang &amp; Perdikaris never train on long trajectories either: §4.2 samples 5×10⁴ independent initial conditions on a unit interval, and Algorithm 1 chains them only at deployment.</figcaption>
+  </figure>
+
+  <p>Three things fall out of this, and all three make your life easier:</p>
+  <ul>
+    <li><strong>No <code>unfold</code>, no <code>check_continuity</code>, no global horizon</strong> in the training generator. It emits <code>(n_samples, S)</code> arrays on a bare <code>t_local</code> grid.</li>
+    <li><strong>W and T stop being training decisions.</strong> You pick <code>S</code> (window length in samples) and that is the only geometry the operator ever sees. W is now purely "how many times do I chain it at deployment".</li>
+    <li><strong>The i₀ distribution becomes yours to choose</strong>, so you can deliberately make it wider than the rollout drift — which is the fix for the compounding problem your PLL notes spent F32/F45/F46 chasing.</li>
+  </ul>
+
+  <p>You still generate trajectories, just in a second, much smaller function used only by <code>rollout_metrics</code>. Same <code>profile()</code> call, longer time grid.</p>
+</section>
+
+<!-- ================= WHY B MATTERS ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">C</span><h2>Why a steady-state dataset needs one extra term</h2><span class="tag t-note">Do not skip</span></div>
+
+  <p>Take "steady state" completely literally — pure sinusoid, nothing else — and the dataset is quietly broken. If every current is exactly the steady-state response to its own Δv, then i₀ is a deterministic function of Δv. It carries no independent information, the network learns to ignore it, and at rollout, when your own prediction error nudges i₀ off the manifold, there is no mechanism to respond. You would have built a windowed regressor and called it a recurrent operator.</p>
+
+  <p>Fix: add the homogeneous mode to the current you prescribe.</p>
+  <div class="eq">
+i(t)  =  A(t)·cos(ω_g t + φ)   +   B·e^(−t/τ)
+                                   <span class="an">└─ this term</span>
+  </div>
+
+  <p>Push it through <code>Δv = ℓ·di/dt + R·i</code>. The B term contributes <code>B·e^(−t/τ)·(−ℓ/τ + R)</code>, and since τ ≡ ℓ/R that bracket is <strong>exactly zero</strong>.</p>
+
+  <div class="box b-ref">
+    <span class="lbl">What that means</span>
+    <p><strong>B changes i without changing Δv at all.</strong> One Δv corresponds to a whole one-parameter family of currents, and i₀ is the <em>only</em> thing that tells them apart. That is what makes the branch's i₀ input load-bearing rather than decorative — and it is the same one-dimensional null space <code>{c·e^(−t/τ)}</code> from the physics-loss argument, showing up here as a data-design tool.</p>
+    <p>It is also a free unit test: generate twice with different B, same everything else, and Δv must come back bit-identical.</p>
+  </div>
+
+  <p>Sample it relative to the amplitude — <code>B = beta · I0</code> with <code>beta ∈ [−0.3, 0.3]</code> — so a small current never ends up dominated by a decaying DC offset it could not physically have.</p>
+</section>
+
+<!-- ================= PART 1: Line_Physics ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">1</span><h2>Line_Physics.py</h2></div>
+  <p class="why">Mirrors the split you already have: <code>PhysicsEquations</code> holds equations only, <code>PLLSimulator</code> holds shapes and the time grid. Same two classes, same file.</p>
+
+  <h4>Before you start — config</h4>
+  <p><code>Line_Constants.yml</code> is missing <code>f_0</code>, and declares <code>Windows:</code> twice (line 3 = 40, line 7 = 10; OmegaConf silently keeps the last). You need <code>Rc</code>, <code>Lc</code>, <code>f_0: 50</code>, <code>S</code>, <code>dt</code>, <code>n_samples</code>.</p>
+
+  <hr class="rule">
+
+  <h3>1.1 · <code>Line_Physics.__init__</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">holds</div><div class="v"><code>R</code>, <code>X</code>, <code>omega_0</code>, and the two derived constants <code>ell</code> and <code>tau</code></div></div>
+    <div class="row"><div class="k">why</div><div class="v">Derive ℓ and τ <em>once</em>, here. Every bug in this project so far has been a missing ω_b; computing it in one place means it can only be wrong once.</div></div>
+    <div class="row"><div class="k">values</div><div class="v"><code>ell = 3.1831e-4 s</code> · <code>tau = 0.063662 s</code></div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>from omegaconf import OmegaConf
+from pathlib import Path
+import torch
+
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+line_constants = OmegaConf.load(CONFIG_DIR / "Line_Constants.yml")
+
+torch.set_default_dtype(torch.float64)   <span class="cmt"># the envelope is 0.44% of the signal</span>
+
+
+class Line_Physics:
+    def __init__(self, line_constants=line_constants):
+        self.R       = line_constants.Rc                    <span class="cmt"># 0.005 pu</span>
+        self.X       = line_constants.Lc                    <span class="cmt"># 0.1 pu -- a REACTANCE</span>
+        self.omega_0 = 2 * torch.pi * line_constants.f_0    <span class="cmt"># 314.159 rad/s</span>
+        self.ell     = self.X / self.omega_0                <span class="cmt"># 3.1831e-4 s</span>
+        self.tau     = self.ell / self.R                    <span class="cmt"># 0.063662 s</span></code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>class Line_Physics:
+    def __init__(self, line_constants=line_constants):
+        <span class="cmt"># R, X straight from config</span>
+        <span class="cmt"># omega_0 = 2*pi*f_0</span>
+        <span class="cmt"># ell = X / omega_0        <- the real inductance, in seconds</span>
+        <span class="cmt"># tau = ell / R            <- 63.662 ms; assert it</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Store R and X from config. Derive and store the inductance in seconds and the time constant. Assert the time constant is 63.662 ms before anything else runs — if it is 20 s you are treating the reactance as a henry value.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>1.2 · <code>line_ODEs</code> and <code>delta_v</code> — the same equation, twice</h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>line_ODEs(Ic, Delta_V) → dIc/dt</code> · <code>delta_v(Ic, dIc_dt) → Δv</code></div></div>
+    <div class="row"><div class="k">shapes</div><div class="v">elementwise; whatever goes in comes out the same shape</div></div>
+    <div class="row"><div class="k">why both</div><div class="v">Generation only calls <code>delta_v</code>. But <code>line_ODEs</code> is what your <em>residual</em> and your <em>round-trip test</em> need — keep it, and keep them algebraically consistent.</div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>    def line_ODEs(self, Ic, Delta_V):
+        """Forward form. Generation never calls this; the residual and the
+        round-trip test do. NOTE: divide by ell, not by X."""
+        return (Delta_V - self.R * Ic) / self.ell
+
+    def delta_v(self, Ic, dIc_dt):
+        """Inverse form. This one line is the entire flip."""
+        return self.ell * dIc_dt + self.R * Ic</code></pre>
+    <p>That is genuinely all of it. Your current <code>line_ODEs</code> divides by <code>Lc</code>; it must be <code>ell</code>, which is a factor of 314 different.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def line_ODEs(self, Ic, Delta_V):
+        <span class="cmt"># solve  ell*didt + R*i = dv  for didt.  one line.</span>
+
+    def delta_v(self, Ic, dIc_dt):
+        <span class="cmt"># solve the same equation for dv.  one line.</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Two methods that are the same constraint <code>ℓ·di/dt + R·i = Δv</code> rearranged for each unknown. They must be exact inverses of each other: <code>line_ODEs(i, delta_v(i, d)) == d</code> to machine precision, for random i and d.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>1.3 · <code>Line_Simulator.profile</code> — the only interesting function in the file</h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>profile(I0, phi, freq_offset, env_rate, B) → (i, didt)</code></div></div>
+    <div class="row"><div class="k">in</div><div class="v">every parameter shaped <code>(n, 1)</code> so it broadcasts against <code>self.t</code> shaped <code>(1, S)</code> — same trick as <code>_grid_phases</code></div></div>
+    <div class="row"><div class="k">out</div><div class="v">two tensors, each <code>(n, S)</code></div></div>
+    <div class="row"><div class="k">why analytic</div><div class="v">See the rule in §A.1. <code>didt</code> is written from calculus, not from the array <code>i</code>.</div></div>
+  </div>
+
+  <p>The maths, once, so you can check the code against it:</p>
+  <div class="eq">
+A(t)   = I₀·e^(r t)                    θ(t) = ω_g t + φ        h(t) = e^(−t/τ)
+
+i      = A·cos θ  +  B·h
+di/dt  = r·A·cos θ  −  A·ω_g·sin θ  −  (B/τ)·h
+         <span class="an">└ dA/dt ┘      └── chain rule ──┘     └─ dh/dt ─┘</span>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>class Line_Simulator:
+    def __init__(self, physics=None, S=125, dt=1e-4):
+        self.physics = physics or Line_Physics()     <span class="cmt"># NOT a local variable</span>
+        self.S  = S
+        self.dt = dt
+        self.t  = (torch.arange(S) * dt).reshape(1, S)          <span class="cmt"># (1, S)</span>
+
+    def profile(self, I0, phi, freq_offset, env_rate, B):
+        """All params (n,1). Returns i, didt each (n,S)."""
+        ph      = self.physics
+        t       = self.t
+        omega_g = ph.omega_0 + 2 * torch.pi * freq_offset       <span class="cmt"># (n,1)</span>
+        th      = omega_g * t + phi                             <span class="cmt"># (n,1)*(1,S) -> (n,S)</span>
+        A       = I0 * torch.exp(env_rate * t)                  <span class="cmt"># (n,S)</span>
+        h       = torch.exp(-t / ph.tau)                        <span class="cmt"># (1,S)</span>
+
+        i    = A * torch.cos(th) + B * h
+        didt = (A * env_rate) * torch.cos(th) \
+             - A * omega_g * torch.sin(th) \
+             - (B / ph.tau) * h
+        return i, didt
+
+    def batch(self, I0, phi, freq_offset, env_rate, B):
+        i, didt = self.profile(I0, phi, freq_offset, env_rate, B)
+        return i, self.physics.delta_v(i, didt)</code></pre>
+    <p>Note <code>omega_g * t</code> is a broadcast, not a matrix product — the same thing your <code>_grid_phases</code> docstring warns about.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>class Line_Simulator:
+    def __init__(self, physics=None, S=125, dt=1e-4):
+        <span class="cmt"># self.physics (an attribute, not a local -- your current file binds a local)</span>
+        <span class="cmt"># self.t shaped (1, S)</span>
+
+    def profile(self, I0, phi, freq_offset, env_rate, B):
+        <span class="cmt"># omega_g  (n,1)   from omega_0 and freq_offset</span>
+        <span class="cmt"># th       (n,S)   omega_g*t + phi          <- broadcast, not matmul</span>
+        <span class="cmt"># A        (n,S)   I0 * exp(env_rate * t)</span>
+        <span class="cmt"># h        (1,S)   exp(-t/tau)</span>
+        <span class="cmt"># i, didt  (n,S)   from the two boxed formulas above</span>
+        return i, didt
+
+    def batch(self, ...):
+        <span class="cmt"># profile(), then physics.delta_v().  two lines.</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>A class holding the physics object and a time grid <code>(1, S)</code>. One method that turns five per-sample parameters into a current and its exact derivative, both <code>(n, S)</code>, with no loop over time and no numerical differentiation anywhere. One wrapper that returns the current and the voltage that produces it.</p>
+    <p>It must satisfy: changing only B leaves Δv bit-identical; and with <code>env_rate = 0, B = 0</code>, <code>|Δv|/|i| = 0.100125</code> with Δv leading i by 87.138°.</p>
+  </div>
+</section>
+
+<!-- ================= PART 2: line_dataset ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">2</span><h2>Line_Dataset_Generator.py</h2></div>
+  <p class="why">Lift the skeleton from <code>Dataset_Creator</code> — the LHS helper, <code>build_meta</code>, <code>save_dataset</code>, <code>load_dataset</code> all port almost unchanged. What goes away is <code>solve_ODEs</code>, <code>unfold</code>, <code>check_continuity</code> and the whole disturbance machinery.</p>
+
+  <h3>2.1 · The parameter space — Stage A</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>column</th><th>kind</th><th class="n">range</th><th>notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>I0</code></td><td>forcing</td><td class="n">[0.05, 1.0] pu</td><td>current amplitude. Not 0 at the bottom — a zero-current sample carries no information and makes relative errors explode.</td></tr>
+        <tr><td><code>phi</code></td><td>forcing</td><td class="n">[−π, π] rad</td><td>absorbs the grid angle. No PLL yet, so there is no absolute frame to reference.</td></tr>
+        <tr><td><code>freq_offset</code></td><td>forcing</td><td class="n">[−0.3, 0.3] Hz</td><td>same as the PLL</td></tr>
+        <tr class="hi"><td><code>env_rate</code></td><td>forcing</td><td class="n"><strong>0 · fixed</strong></td><td>Stage A is steady state, per your supervisor. Keep the column so Stage B is a config edit, not a rewrite.</td></tr>
+        <tr class="hi"><td><code>beta</code></td><td><strong>initial condition</strong></td><td class="n">[−0.3, 0.3]</td><td><code>B = beta · I0</code>. This is the only genuine IC, and §C is why it must be here.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="box b-note">
+    <span class="lbl">One phase, not three</span>
+    <p>The three-phase system is diagonal, so phases b and c are phase a with φ ∓ 2π/3 — and you are already sampling φ uniformly over the full circle. Generating three phases would give you three copies of a distribution you already have. Generate <strong>one scalar channel</strong>: branch = <code>[i₀, Δv(S)]</code>, <code>S + 1</code> inputs, <code>output_dim = 1</code>. The three phases come back at rung 2, when the Park transform couples them, and cost one line then.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>2.2 · <code>sample_params</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">returns</div><div class="v">five tensors each <code>(n, 1)</code>, ready to hand straight to <code>profile()</code></div></div>
+    <div class="row"><div class="k">why (n,1)</div><div class="v">so broadcasting against <code>t</code> shaped <code>(1, S)</code> works without any reshaping downstream</div></div>
+    <div class="row"><div class="k">port</div><div class="v"><code>Dataset_Creator._lhs</code> verbatim — one seeded numpy Generator feeding every LatinHypercube call in order</div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>class Line_Dataset:
+    COLUMNS = ["I0", "phi", "freq_offset", "env_rate", "beta"]
+
+    def __init__(self, cfg, seed=None):
+        self._rng = np.random.default_rng(seed)
+        self.n    = cfg.n_samples
+        self.sim  = Line_Simulator(S=cfg.S, dt=cfg.dt)
+        self.cfg  = cfg
+
+    def _lhs(self, d, n):
+        return LatinHypercube(d=d, seed=self._rng).random(n)
+
+    def sample_params(self):
+        u  = torch.as_tensor(self._lhs(5, self.n))     <span class="cmt"># (n,5) in [0,1)</span>
+        r  = self.cfg.ranges
+        col = lambda k, j: (r[k][0] + (r[k][1] - r[k][0]) * u[:, j]).reshape(-1, 1)
+
+        I0          = col("I0", 0)
+        phi         = col("phi", 1)
+        freq_offset = col("freq_offset", 2)
+        env_rate    = col("env_rate", 3)               <span class="cmt"># [0,0] in stage A</span>
+        beta        = col("beta", 4)
+        B           = beta * I0                        <span class="cmt"># relative, see section C</span>
+        return I0, phi, freq_offset, env_rate, B</code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def sample_params(self):
+        <span class="cmt"># u = LHS(5, n)                      -> (n,5) in [0,1)</span>
+        <span class="cmt"># scale each column into its config range</span>
+        <span class="cmt"># reshape every one to (n,1)</span>
+        <span class="cmt"># B = beta * I0   (NOT an independent absolute draw)</span>
+        return I0, phi, freq_offset, env_rate, B</code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Latin-hypercube over the five columns, scaled from config ranges, every output <code>(n, 1)</code>. The homogeneous amplitude is drawn <em>relative</em> to the current amplitude, not absolutely. Seeded reproducibly through a single numpy Generator.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>2.3 · <code>build</code> — the training set</h3>
+  <div class="contract">
+    <div class="row"><div class="k">returns</div><div class="v">a dict of arrays: <code>i (n,S)</code>, <code>delta_v (n,S)</code>, <code>i0 (n,)</code>, <code>t_local (S,)</code>, <code>params (n,5)</code></div></div>
+    <div class="row"><div class="k">no</div><div class="v">no <code>unfold</code>, no <code>run_id</code>, no <code>segment_id</code>, no <code>check_continuity</code> — every row is already an independent window</div></div>
+    <div class="row"><div class="k">dtype</div><div class="v">generate float64, store <code>i</code>/<code>delta_v</code> float32, keep <code>t_local</code> and <code>params</code> float64 — same policy as <code>_F64</code> in your PLL generator</div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>    def build(self):
+        params = self.sample_params()
+        i, dv  = self.sim.batch(*params)
+
+        records = {
+            "i":        i,                              <span class="cmt"># (n,S)  the target</span>
+            "delta_v":  dv,                             <span class="cmt"># (n,S)  the branch function</span>
+            "i0":       i[:, 0],                        <span class="cmt"># (n,)   the branch scalar</span>
+            "t_local":  self.sim.t.squeeze(0),          <span class="cmt"># (S,)   the trunk input</span>
+            "params":   torch.cat(params, dim=1),       <span class="cmt"># (n,5)  provenance</span>
+        }
+        return records, self.build_meta()</code></pre>
+    <p><code>i0</code> is just the first column of <code>i</code> — you do not compute it separately, and that guarantees it is consistent by construction.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def build(self):
+        <span class="cmt"># params = sample_params()</span>
+        <span class="cmt"># i, dv  = sim.batch(*params)</span>
+        <span class="cmt"># i0 is i[:, 0] -- read it off, never recompute it</span>
+        <span class="cmt"># return records dict + meta</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Draw parameters, produce current and voltage, package as a flat dict of arrays with the initial condition read off the trajectory rather than recomputed. Record enough metadata (ℓ, τ, S, dt, ranges, seed) that a checkpoint can be validated against the dataset it was trained on — copy the discipline in <code>build_meta</code>, including the honest <code>lhs_seed: None</code> for unseeded runs.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>2.4 · <code>build_trajectories</code> — the evaluation set only</h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>build_trajectories(n_traj, W) → records</code></div></div>
+    <div class="row"><div class="k">why separate</div><div class="v">This is the <em>only</em> place a horizon exists. It exists to measure rollout compounding, nothing else.</div></div>
+    <div class="row"><div class="k">how</div><div class="v">same <code>profile()</code>, a longer time grid (<code>N = W·S</code>), then <code>unfold</code> exactly as <code>generate_dataset</code> does</div></div>
+    <div class="row"><div class="k">size</div><div class="v">small — a few hundred trajectories is plenty; this set is never trained on</div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>    def build_trajectories(self, n_traj, W):
+        """Continuous solutions, chopped -- for rollout_metrics ONLY."""
+        long_sim   = Line_Simulator(self.sim.physics, S=W * self.sim.S, dt=self.sim.dt)
+        saved, self.n = self.n, n_traj
+        params     = self.sample_params()
+        self.n     = saved
+        i, dv      = long_sim.batch(*params)            <span class="cmt"># (n_traj, W*S)</span>
+
+        S = self.sim.S
+        win = lambda x: x.unfold(1, S, S).reshape(-1, S)  <span class="cmt"># (n_traj*W, S)</span>
+        return {
+            "i": win(i), "delta_v": win(dv),
+            "i0": win(i)[:, 0],
+            "t_local": self.sim.t.squeeze(0),
+            "run_id":     torch.arange(n_traj).repeat_interleave(W),
+            "segment_id": torch.arange(W).repeat(n_traj),
+        }</code></pre>
+    <p><code>run_id</code> and <code>segment_id</code> come back here because <code>rollout_metrics</code> needs to know which windows belong to the same trajectory and in what order.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def build_trajectories(self, n_traj, W):
+        <span class="cmt"># a second Line_Simulator with S_long = W*S, same dt</span>
+        <span class="cmt"># same sample_params() -- the profile formula does not care how long t is</span>
+        <span class="cmt"># unfold(1, S, S).reshape(-1, S)   <- lift from generate_dataset</span>
+        <span class="cmt"># add run_id / segment_id so rollout can re-chain them</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Produce continuous solutions over W consecutive windows and chop them, tagging each row with which trajectory it came from and its position in the sequence. Used only to measure how error compounds across handovers. Must satisfy: stitching the windows of one trajectory back together reproduces the unchopped solution exactly.</p>
+  </div>
+</section>
+
+<!-- ================= TESTS ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">3</span><h2>The four tests that make this bulletproof</h2></div>
+  <p class="why">Run each one the moment the function it covers exists. All four are cheap and all four are decisive — this is the payoff for choosing a system with an exact solution.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="n">#</th><th>test</th><th>how</th><th class="n">must return</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="n">T1</td>
+          <td><strong>Inverse pair</strong></td>
+          <td>Random <code>i</code>, random <code>d</code>. Check <code>line_ODEs(i, delta_v(i, d)) == d</code>.</td>
+          <td class="n">&lt; 1e-15</td>
+        </tr>
+        <tr>
+          <td class="n">T2</td>
+          <td><strong>B cancellation</strong></td>
+          <td>Generate with <code>beta = 0</code> and <code>beta = 0.3</code>, everything else fixed. Compare Δv.</td>
+          <td class="n">exactly 0</td>
+        </tr>
+        <tr>
+          <td class="n">T3</td>
+          <td><strong>Phasor</strong></td>
+          <td><code>env_rate = 0, B = 0</code>. Take peak of Δv over peak of i, and the phase lead.</td>
+          <td class="n">0.100125 pu<br>87.138°</td>
+        </tr>
+        <tr class="hi">
+          <td class="n">T4</td>
+          <td><strong>Round trip</strong></td>
+          <td>Feed Δv to <code>scipy.integrate.solve_ivp</code> with <code>line_ODEs</code>, <code>rtol=atol=1e-12</code>, starting from <code>i[0]</code>. Compare against <code>i</code>.</td>
+          <td class="n">&lt; 1e-10</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>T2 is the one to write first</strong> — it is two lines, it needs no reference solution, and it catches a wrong τ, a wrong ℓ, and a sign error in <code>didt</code> all at once. <strong>T4 is the one that matters</strong>: it is the test <code>PLL_Attempt</code> could never run, and passing it means your generator is correct in an absolute sense, not merely self-consistent.</p>
+
+  <div class="box b-flag">
+    <span class="lbl">If T4 fails by a factor near 314</span>
+    <p>Something is still dividing by <code>X</code> where it should divide by <code>ell</code>. That is ω_b = 314.159, and it has now been the cause of every unit problem in this project.</p>
+  </div>
+</section>
+
+<!-- ================= LADDER ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">4</span><h2>The three dataset stages</h2></div>
+  <p class="why">Your supervisor's staging, made concrete. Each stage is a config edit, not a rewrite — which is the reason to keep the <code>env_rate</code> column in Stage A even though it is pinned at zero.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="n">stage</th><th>what changes</th><th class="n">env_rate range</th><th>gate to move on</th></tr></thead>
+      <tbody>
+        <tr class="hi">
+          <td class="n">A</td>
+          <td>steady sinusoid + homogeneous mode</td>
+          <td class="n">[0, 0]</td>
+          <td>all four tests pass; training reaches far below anything in <code>PLL_Attempt</code></td>
+        </tr>
+        <tr>
+          <td class="n">B</td>
+          <td>slow envelope — "half or double in 0.5 s"</td>
+          <td class="n">[−1.386, +1.386]</td>
+          <td>error does not degrade vs A; the in-phase term is now being learned</td>
+        </tr>
+        <tr>
+          <td class="n">C</td>
+          <td>faults — fast forced decay, from his profiles</td>
+          <td class="n">down to −460</td>
+          <td>report clean vs fault separately, the way F32 splits clean / sag / jump</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>One thing to expect at Stage C, so it does not surprise you: in steady state the in-phase part of Δv is 5% of the quadrature part, and the envelope contributes 0.44%. During a 5 ms forced decay the in-phase part becomes <strong>−0.1416</strong> — 82% of the quadrature, and with the opposite sign. The regime where the dynamics are nearly invisible and the regime where they dominate are the same dataset. That is a good argument for reporting them separately from the very first run.</p>
+
+  <hr class="rule">
+
+  <h3>Before you write a line</h3>
+  <ul class="checklist">
+    <li><code>Line_Constants.yml</code> — remove the duplicate <code>Windows:</code>, add <code>f_0: 50</code>, <code>S</code>, <code>dt: 1e-4</code>, <code>n_samples</code>.</li>
+    <li><code>Line_Physics.line_ODEs</code> — divide by <code>ell</code>, not <code>Lc</code>.</li>
+    <li><code>Line_Simulator.__init__</code> — <code>self.physics</code>, not a local.</li>
+    <li><code>Line_Initial_Conditions.yml</code> — replace with the five columns in §2.1; the sag and phase_jump blocks do not apply to inverse generation.</li>
+    <li>Write T2 before you write <code>build</code>.</li>
+  </ul>
+</section>
+
+<!-- ================= PART 5: operator ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">5</span><h2>line_operator.py</h2></div>
+  <p class="why">The closest port in the whole project. <code>pll_operator.py</code> comes across almost untouched — what changes is three numbers, and every change makes it smaller.</p>
+
+  <h3>5.1 · What changes from the PLL, and why</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th></th><th class="n">PLL</th><th class="n">line</th><th>why</th></tr></thead>
+      <tbody>
+        <tr><td><code>output_dim</code></td><td class="n">2</td><td class="n"><strong>1</strong></td><td>Two heads existed because ω had to come from dθ/dt, and that injected sensor noise through K_p (F10). One state here, one head.</td></tr>
+        <tr><td>branch scalars</td><td class="n">3</td><td class="n"><strong>1</strong></td><td>θ₀ needed <code>sin</code>/<code>cos</code> to avoid the wrap discontinuity at ±π, plus ω₀. <code>i₀</code> is a plain real number — no angle, no wrap, one channel.</td></tr>
+        <tr><td>branch functions</td><td class="n">3·S</td><td class="n"><strong>1·S</strong></td><td>Va, Vb, Vc were coupled by the Park transform. Here the system is diagonal and you generate one phase.</td></tr>
+        <tr><td><code>n_extra</code></td><td class="n">0 or 2</td><td class="n">drop it</td><td>That was the Kp/Ki gains experiment. Nothing analogous yet.</td></tr>
+        <tr><td><code>Single_PINN</code></td><td class="n">benchmark</td><td class="n">keep</td><td>F52 got a 10× architecture result out of it for ~30 lines. Cheap, and it is the control arm for "is the operator structure doing anything".</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>So <code>branch_sizes[0] = 1 + S = 126</code> and <code>trunk_sizes[0] = 1 + 2F = 9</code> at F = 4. Both nets end at <code>hidden_dim</code>; the branch ends at <code>hidden_dim · output_dim</code>, which is now just <code>hidden_dim</code>.</p>
+
+  <div class="box b-note">
+    <span class="lbl">Two scaling decisions the PLL got for free</span>
+    <p><strong>Δv is ~0.1 pu, not ~1.</strong> The PLL fed Va/Vb/Vc in raw at nominal 1 pu. Feeding a 0.1-scale signal into a <code>tanh</code> stack wastes most of the activation range — normalise the branch function by its own std, or by <code>|Z|</code>, which is the physically meaningful choice since <code>Δv/|Z| ≈ i</code>.</p>
+    <p><strong>t ∈ [0, 0.0125] is a tiny trunk input.</strong> Feed the raw channel as <code>t/T_window</code> in [0, 1] (or [−1, 1]) and keep the Fourier features on physical <code>t</code> so <code>max_freq</code> keeps its rad/s meaning. This may be part of why F31 measured a 4.16× gain from Fourier features — the raw channel alone was badly scaled.</p>
+  </div>
+
+  <h3>5.2 · <code>config/Line_Operator.yml</code></h3>
+  <div data-tier="guided">
+<pre><code>hidden_dim: 64
+output_dim: 1
+num_fourier_feats: 4              <span class="cmt"># F31: 4.16x on val_th at 16 seeds</span>
+max_fourier_feat_frequency: 503   <span class="cmt"># F56: what matters is max_freq/F = 126 rad/s = 20 Hz,</span>
+activation: tanh                  <span class="cmt"># a comb at 20/40/60/80 Hz straddling the 50 Hz carrier</span>
+sizes:
+  trunk_net:  [1, 64, 64, 64]     <span class="cmt"># [0] += 2*F   at build time</span>
+  branch_net: [1, 64, 64, 64]     <span class="cmt"># [0] += S     at build time</span>
+  pinn_net:   [1, 64, 64, 1]      <span class="cmt"># [0] rebuilt entirely; benchmark arm</span></code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code><span class="cmt"># same keys as DeepONet_models.yml, with output_dim 1 and</span>
+<span class="cmt"># branch_net[0] = 1 instead of 3. Keep F and max_freq at the PLL values --</span>
+<span class="cmt"># the carrier is still 50 Hz so the comb transfers.</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>A config carrying the latent width, the output dimension, the Fourier feature count and band, and the base layer sizes for both nets and the benchmark MLP. The two input widths are placeholders that the class rewrites from <code>S</code> and <code>F</code>.</p>
+  </div>
+
+  <h3>5.3 · <code>MLP</code> and <code>Unstacked_DeepONet</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">port</div><div class="v"><code>MLP</code> verbatim. <code>Unstacked_DeepONet</code> with the three number changes above.</div></div>
+    <div class="row"><div class="k">keep</div><div class="v">the <code>cfg</code> / <code>ov</code> split and <code>config()</code>. That is what stops a YAML edit from silently invalidating every checkpoint you have.</div></div>
+    <div class="row"><div class="k">drop</div><div class="v"><code>n_extra</code>, the gains branch, and the <code>n_layers</code>/<code>width</code> override until you need them.</div></div>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>class Line_DeepONet(nn.Module):
+    def __init__(self, model_config=model_config, cfg=None, ov=None):
+        super().__init__()
+        ov = ov or {}
+        if cfg is not None:                          <span class="cmt"># rebuilding a saved network</span>
+            self.hidden_dim   = cfg["hidden_dim"]
+            self.output_dim   = cfg["output_dim"]
+            self.F            = cfg["F"]
+            self.max_freq     = cfg["max_freq"]
+            self.trunk_sizes  = list(cfg["trunk_sizes"])
+            self.branch_sizes = list(cfg["branch_sizes"])
+        else:
+            self.hidden_dim = ov.get("hidden_dim", model_config.hidden_dim)
+            self.output_dim = ov.get("output_dim", model_config.output_dim)
+            self.F          = ov.get("F", model_config.num_fourier_feats)
+            self.max_freq   = ov.get("max_freq", model_config.max_fourier_feat_frequency)
+            S_win           = ov["S_win"]            <span class="cmt"># from meta["S"], never from YAML</span>
+
+            self.trunk_sizes  = list(model_config.sizes.trunk_net)
+            self.branch_sizes = list(model_config.sizes.branch_net)
+            self.trunk_sizes[0]  += 2 * self.F       <span class="cmt"># sin+cos per feature</span>
+            self.branch_sizes[0] += S_win            <span class="cmt"># ONE delta_v channel</span>
+            self.trunk_sizes[-1]  = self.hidden_dim
+            self.branch_sizes[-1] = self.hidden_dim * self.output_dim
+
+        self.trunk_net  = MLP(self.trunk_sizes)
+        self.branch_net = MLP(self.branch_sizes)
+
+    def config(self):
+        return {"arch": "Line_DeepONet", "hidden_dim": self.hidden_dim,
+                "output_dim": self.output_dim, "F": self.F, "max_freq": self.max_freq,
+                "trunk_sizes": self.trunk_sizes, "branch_sizes": self.branch_sizes}
+
+    def forward(self, branch_input, trunk_input):
+        B, T, _ = trunk_input.shape
+        b = self.branch_net(branch_input).view(B, self.output_dim, self.hidden_dim)
+        t = self.trunk_net(trunk_input).view(B, T, self.hidden_dim)
+        return torch.einsum('boh,bth-&gt;bot', b, t).transpose(1, 2)   <span class="cmt"># (B,T,O)</span></code></pre>
+    <p><code>S_win</code> comes from <code>meta["S"]</code> at construction, not from the YAML — the same discipline as <code>train_pll.main</code>, so a dataset and a model can never silently disagree about window length.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>class Line_DeepONet(nn.Module):
+    def __init__(self, model_config, cfg=None, ov=None):
+        <span class="cmt"># cfg branch: read every size straight back from the checkpoint</span>
+        <span class="cmt"># ov branch:  trunk_sizes[0]  += 2*F</span>
+        <span class="cmt">#             branch_sizes[0] += S_win        (ONE channel, not three)</span>
+        <span class="cmt">#             trunk_sizes[-1]  = hidden_dim</span>
+        <span class="cmt">#             branch_sizes[-1] = hidden_dim * output_dim</span>
+
+    def config(self):
+        <span class="cmt"># every field the cfg branch above reads. no more, no less.</span>
+
+    def forward(self, branch_input, trunk_input):
+        <span class="cmt"># branch -> (B, O, H) ; trunk -> (B, T, H) ; einsum -> (B, O, T) -> (B, T, O)</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>A two-network operator whose branch reads <code>[i₀, Δv(S)]</code> and whose trunk reads featurised time, contracted over a shared latent dimension to give one output per query point. It must be reconstructible from its own <code>config()</code> alone, and it must take the window length from the dataset rather than from a config file.</p>
+  </div>
+
+  <h3>5.4 · What the einsum actually does</h3>
+  <p>Worth being able to say out loud, because it is the reason a linear operator is exactly representable here (§01 of the guide, row three).</p>
+  <div class="eq">
+G(u)(t)  =  Σ_h   b_h(u)  ·  τ_h(t)
+                  <span class="an">└ branch ┘   └ trunk ┘</span>
+
+<span class="an">branch (B, O, H)  ⊗  trunk (B, T, H)  →  (B, O, T)</span>
+  </div>
+  <p>The branch turns the whole input function into H coefficients; the trunk turns each query time into H basis values; the output is their inner product. That is a finite-rank expansion — and the exact solution operator of your line, <code>i(t) = i₀·e^(−t/τ) + (1/ℓ)∫₀ᵗ e^(−(t−s)/τ)·Δv(s) ds</code>, is <em>linear</em> in <code>(i₀, Δv)</code>, so a rank-H expansion can represent it exactly. Any error you measure is therefore an optimisation failure, not an approximation one.</p>
+</section>
+
+<!-- ================= PART 6: residual ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">6</span><h2>line_residual.py</h2></div>
+  <p class="why">The smallest file, and the one carrying the most reasoning. <code>compute_theta_omega</code> was 40 lines across two equations, a saturation model and an eq4/eq6 switch. This is one equation.</p>
+
+  <h3>6.1 · <code>build_trunk_input</code> — port verbatim</h3>
+  <div data-tier="guided">
+<pre><code>def build_trunk_input(t, F, max_F_freq):
+    feats = [t]
+    if F &gt; 0:
+        for k in range(1, F + 1):
+            w = max_F_freq * k / F          <span class="cmt"># comb SPACING is the lever (F56)</span>
+            feats += [torch.sin(w * t), torch.cos(w * t)]
+    return torch.cat(feats, dim=-1)</code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>def build_trunk_input(t, F, max_F_freq):
+    <span class="cmt"># [t] then sin/cos at k*max_freq/F for k = 1..F. unchanged from the PLL.</span></code></pre>
+  </div>
+  <div data-tier="spec"><p>Identical to the PLL's. The carrier is still 50 Hz, so the comb transfers unchanged.</p></div>
+
+  <h3>6.2 · <code>compute_i</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>compute_i(model, t_query, branch, delta_v, physics) → dict</code></div></div>
+    <div class="row"><div class="k">shapes</div><div class="v"><code>t_query (B,T,1)</code> with <code>requires_grad_(True)</code> · <code>branch (B, 1+S)</code> · <code>delta_v (B,T,1)</code></div></div>
+    <div class="row"><div class="k">returns</div><div class="v"><code>i (B,T,1)</code>, <code>didt (B,T,1)</code>, <code>res (B,T,1)</code></div></div>
+    <div class="row"><div class="k">Δv from</div><div class="v">the <strong>dataset</strong>, never from the prediction — the analogue of eq-4. F53 already showed eq-6 loses; here there is no eq-6 to write, because Δv does not depend on the angle of anything.</div></div>
+  </div>
+
+  <div class="eq">
+res  =  di/dt  +  i/τ  −  Δv/ℓ            <span class="an">the ODE, moved to one side</span>
+        <span class="an">~314      ~15.7     ~314           pu/s, at i = 1 pu</span>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>def compute_i(model, t_query, branch, delta_v, physics):
+    """physics: ell*di/dt + R*i = delta_v   ->   di/dt + i/tau - delta_v/ell = 0"""
+    trunk = build_trunk_input(t_query, model.F, model.max_freq)
+    i     = model.forward(branch, trunk)                    <span class="cmt"># (B,T,1)</span>
+    didt  = torch.autograd.grad(i, t_query, torch.ones_like(i),
+                                create_graph=True)[0]
+    res   = didt + i / physics.t_constant - delta_v / physics.Lc
+    return {"i": i, "didt": didt, "res": res}</code></pre>
+    <p>Four lines. Note there is no <code>omega_nominal</code>, no deviation ramp to add back, and no second <code>autograd.grad</code> — all three existed in the PLL only because θ was an unbounded integrator.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>def compute_i(model, t_query, branch, delta_v, physics):
+    <span class="cmt"># trunk = build_trunk_input(...)</span>
+    <span class="cmt"># i     = model.forward(branch, trunk)</span>
+    <span class="cmt"># didt  = autograd.grad(i, t_query, ones_like(i), create_graph=True)[0]</span>
+    <span class="cmt">#         create_graph=True or the physics term contributes no gradient</span>
+    <span class="cmt"># res   = didt + i/tau - delta_v/ell</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Evaluate the operator at the query points, differentiate the output with respect to those points with the graph retained, and return the ODE written as a single residual. The forcing is read from the dataset and treated as constant with respect to the network output.</p>
+  </div>
+
+  <div class="box b-ref">
+    <span class="lbl">Why this residual is provably Sobolev supervision</span>
+    <p>In the PLL you <em>inferred</em> F13 from the fact that the residual moved 10% while deployed error moved 2.4×. Here it is one line of algebra. The true solution satisfies <code>Δv/ℓ = di/dt|true + i_true/τ</code> exactly. Substitute that into the residual:</p>
+    <div class="eq" style="margin:10px 0 6px">
+res  =  ( di/dt|pred − di/dt|true )  +  ( i_pred − i_true ) / τ
+        <span class="an">└──── derivative error ────┘     └── data error ──┘ × 15.7</span>
+    </div>
+    <p>The physics loss <strong>is</strong> the derivative error plus <code>1/τ</code> times the value error — not approximately, exactly. So it is a Sobolev penalty with a known, computable mixing weight. That also tells you its null space directly: <code>res = 0</code> for any error of the form <code>c·e^(−t/τ)</code>, one dimension, decaying.</p>
+  </div>
+
+  <h3>6.3 · Scales, and a free extra label</h3>
+  <p>Normalise the residual by the RMS of the terms it is built from, exactly as <code>s1</code>/<code>s2</code> do in <code>train_pll.main</code> — otherwise a dimensionless <code>w_phys</code> means nothing:</p>
+  <div data-tier="guided">
+<pre><code>s = (delta_v / ell - i / tau).pow(2).mean().sqrt().item()   <span class="cmt"># = RMS(di/dt), ~222 pu/s</span>
+...
+r = (out["res"] / s).pow(2).mean()</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>One scale, computed once on the training split from the dataset's own <code>Δv</code> and <code>i</code>: the RMS of the equation's right-hand side. Divide the residual by it before squaring.</p>
+  </div>
+
+  <div class="box b-note">
+    <span class="lbl">An experiment you could not run on the PLL</span>
+    <p>Your generator computes <code>didt</code> exactly and throws it away. Store it in the npz and you have a <em>direct</em> derivative label, which by the algebra above is almost the same information the physics term supplies. That gives you two ways to inject it:</p>
+    <ul>
+      <li><code>w_phys · ‖res/s‖²</code> — the physics route</li>
+      <li><code>w_d · ‖di/dt|pred − di/dt|true‖²</code> — the label route</li>
+    </ul>
+    <p>They differ only by the <code>1/τ</code> value-error term. Comparing them is a cheap, clean ablation that turns F13 from an interpretation into a measurement. Worth one column in the sweep.</p>
+  </div>
+
+  <h3>6.4 · Test T5 — the one this whole rung exists for</h3>
+  <p>Wrap the exact solution in a module with the operator's interface and push it through <code>compute_i</code>. If the residual does not come back at machine zero, something in the autograd path, the sign, <code>ℓ</code>, <code>τ</code> or the trunk layout is wrong — and you find it in seconds instead of after a training run.</p>
+  <div data-tier="guided">
+<pre><code>class _Exact(torch.nn.Module):
+    """Pretends to be the trained operator, returns the closed form."""
+    F, max_freq, output_dim = 0, 0, 1          <span class="cmt"># F=0 -> trunk is raw t, channel 0</span>
+    def __init__(self, I, phi, r, B, wg, tau):
+        super().__init__(); self.p = (I, phi, r, B, wg, tau)
+    def forward(self, branch, trunk):
+        I, phi, r, B, wg, tau = self.p
+        t = trunk[..., 0:1]
+        return I*torch.exp(r*t)*torch.cos(wg*t + phi) + B*torch.exp(-t/tau)
+
+<span class="cmt"># then</span>
+res = compute_i(_Exact(...), t_query, branch, delta_v, physics)["res"]
+assert res.abs().max() &lt; 1e-10</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>A stand-in module exposing <code>F</code>, <code>max_freq</code>, <code>output_dim</code> and <code>forward(branch, trunk)</code>, returning the analytic current evaluated at the trunk's raw time channel. Passed through <code>compute_i</code> against the matching <code>Δv</code>, the residual must be machine zero.</p>
+  </div>
+
+  <div class="box b-flag">
+    <span class="lbl">Two ways to fail T5 that look identical</span>
+    <p>A residual around <strong>1e-4 relative</strong> means <code>ℓ</code> and <code>τ</code> are consistent but the derivative is off by truncation — check you are not differentiating numerically anywhere. A residual around <strong>314×</strong> too large means an ω_b is missing again. And a residual that is exactly <code>2·R·B·h/ℓ</code> means the <code>B</code> sign is back.</p>
+  </div>
+</section>
+
+<!-- ================= PART 7: layout ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">7</span><h2>How the remaining files fit together</h2></div>
+  <p class="why">The PLL grew <code>train_pll</code>, <code>pll_infer</code>, <code>reval</code>, <code>rewindow</code>, <code>sweep</code>, <code>model_menu</code>, <code>contenders</code> and <code>plot_sweeps</code> one at a time, each solving the previous one's missing API. Deciding the graph up front collapses that to four.</p>
+
+  <figure>
+    <svg viewBox="0 0 880 232" role="img" aria-label="Module dependency graph: physics and operator at the base, residual and evaluate in the middle, trainer above them, and two command line entry points at the top. All arrows point downward, so there are no cycles.">
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,1 10,5 0,9" fill="currentColor"/></marker></defs>
+      <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" text-anchor="middle">
+        <rect x="20"  y="16" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="104" y="37">cli_dataset.py</text>
+        <rect x="322" y="16" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="406" y="37">cli_train.py</text>
+        <rect x="624" y="16" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="708" y="37">Line_Plots.py</text>
+
+        <rect x="20"  y="94" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="104" y="115">Dataset_Generator</text>
+        <rect x="322" y="94" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="406" y="115">Line_Trainer</text>
+        <rect x="624" y="94" width="168" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="708" y="115">Line_Evaluate</text>
+
+        <rect x="171" y="172" width="150" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="246" y="193">Line_Physics</text>
+        <rect x="365" y="172" width="150" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="440" y="193">Line_Residual</text>
+        <rect x="559" y="172" width="150" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="634" y="193">Line_Operator</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.25" fill="none" marker-end="url(#a3)">
+        <line x1="104" y1="52" x2="104" y2="90"/>
+        <line x1="406" y1="52" x2="406" y2="90"/>
+        <line x1="708" y1="52" x2="708" y2="90"/>
+        <line x1="490" y1="111" x2="620" y2="111"/>
+        <line x1="104" y1="130" x2="230" y2="168"/>
+        <line x1="392" y1="130" x2="420" y2="168"/>
+        <line x1="700" y1="130" x2="650" y2="168"/>
+        <line x1="424" y1="206" x2="330" y2="200"/>
+        <line x1="500" y1="184" x2="555" y2="186"/>
+      </g>
+      <text x="556" y="105" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".6" text-anchor="middle">rollout</text>
+      <text x="440" y="226" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor" opacity=".65" text-anchor="middle">every arrow points down — no cycles, so no deferred imports</text>
+    </svg>
+    <figcaption><code>Line_Trainer</code> imports <code>Line_Evaluate</code> to fill in the rollout metrics at the end of <code>fit()</code>. <code>Line_Evaluate</code> must never import <code>Line_Trainer</code> — that edge is what produced <code>pll_infer</code>'s "deferred: circular import" comment.</figcaption>
+  </figure>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>file</th><th>owns</th><th>replaces, from the PLL</th></tr></thead>
+      <tbody>
+        <tr><td><span class="f">Line_Trainer.py</span></td><td>build → epoch loop → early stop → checkpoint + JSON record</td><td><code>train_pll.py</code></td></tr>
+        <tr><td><span class="f">Line_Evaluate.py</span></td><td><code>load_checkpoint</code>, one-window prediction, recurrent rollout, metrics</td><td><code>pll_infer</code> + <code>reval</code> + <code>rewindow</code> + <code>model_menu</code> + <code>contenders</code></td></tr>
+        <tr><td><span class="f">Line_Plots.py</span></td><td>figures from a checkpoint, and figures from a directory of run JSONs</td><td><code>pll_plots</code> + <code>plot_sweeps</code></td></tr>
+        <tr><td><span class="f">cli_train.py</span></td><td>config merge, sweep expansion. No training logic.</td><td><code>sweep.py</code> + <code>main()</code>'s 24 keyword arguments</td></tr>
+        <tr><td><span class="f">cli_dataset.py</span></td><td>one job: refuse to build a dataset without a seed</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="box b-ref">
+    <span class="lbl">Decide this before you write any of them</span>
+    <p>Not the file layout — <strong>the run record schema and the <code>tag</code> format.</strong> That is what actually made the PLL navigable: <code>plot_sweeps</code> reads it, the F-numbers in <code>notes.md</code> cite it, and it is how 100 HPC jobs became one table. Everything below is downstream of §9.3.</p>
+  </div>
+</section>
+
+<!-- ================= PART 8: trainer ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">8</span><h2>Line_Trainer.py</h2></div>
+
+  <h3>8.1 · <code>config/Line_Training.yml</code> — and why a config object, not arguments</h3>
+  <p><code>train_pll.main</code> takes <strong>24 keyword arguments</strong> and <code>run_epoch</code> takes <strong>14</strong>. That is not a style problem, it is shared state with nowhere to live. One config object fixes the first; <code>self</code> fixes the second.</p>
+  <div data-tier="guided">
+<pre><code>dataset:   line_stageA.npz
+val_frac:  0.15
+seed:      0
+split_seed: 0
+epochs:    800
+patience:  40
+batch_size: 512
+lr:        3.0e-3
+w_phys:    0.3           <span class="cmt"># DO NOT inherit 0.3 blindly -- section 6 explains why</span>
+w_deriv:   0.0           <span class="cmt"># the direct di/dt label. 0 = physics route only</span>
+arch:      deeponet
+device:    auto
+n_eval_traj: 300
+runs_dir:  runs
+results_dir: sweeps
+model:                   <span class="cmt"># merged into `ov` and handed to the operator</span>
+  F: 4
+  max_freq: 628
+  hidden_dim: 64
+  n_layers: null
+  width: null</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>Every knob that was a keyword argument in <code>train_pll.main</code>, plus a nested <code>model:</code> block that becomes the operator's <code>ov</code>. The CLI merges command-line overrides onto this; the merged result is saved verbatim into both the checkpoint and the run record, so any run can be replayed from its own JSON.</p>
+  </div>
+
+  <h3>8.2 · <code>__init__</code> — build everything, own the state</h3>
+  <div class="contract">
+    <div class="row"><div class="k">takes</div><div class="v">the merged <code>cfg</code>, nothing else</div></div>
+    <div class="row"><div class="k">builds</div><div class="v">dataset → prep → split → normalisation stats → residual scale → branch → model → optimiser → scheduler</div></div>
+    <div class="row"><div class="k">why here</div><div class="v">Every one of these is read by more than one method. On <code>self</code> they stop being function parameters.</div></div>
+  </div>
+
+  <h4>What changes from <code>prepare()</code> and <code>main()</code></h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th></th><th class="n">PLL</th><th class="n">line</th><th>why</th></tr></thead>
+      <tbody>
+        <tr><td>deviation transform</td><td class="n">subtract <code>θ₀ + ω_b·t</code></td><td class="n"><strong>none</strong></td><td>θ grew to ~157 rad and dwarfed the deviation. <code>i</code> is bounded in [−1,1].</td></tr>
+        <tr><td>split</td><td class="n"><code>group_split</code> by <code>run_id</code></td><td class="n"><strong>plain random</strong></td><td>Training rows are independent windows now (§B), so there are no groups to keep together. Keep <code>group_split</code> only for the trajectory set.</td></tr>
+        <tr><td>eval set</td><td class="n">val runs, reused</td><td class="n"><strong>separate npz, different seed</strong></td><td>The trajectory set is generated on its own and never seen in training — a genuinely held-out rollout measurement.</td></tr>
+        <tr><td>loss weights</td><td class="n"><code>w_omega</code>, <code>w_phys</code></td><td class="n"><code>w_phys</code>, <code>w_deriv</code></td><td><code>w_omega</code> existed to balance two heads. One head here; <code>w_deriv</code> is the §6.3 ablation.</td></tr>
+        <tr><td>scales</td><td class="n"><code>s1</code>, <code>s2</code></td><td class="n">one <code>s</code></td><td>One equation. <code>s = RMS(Δv/ℓ − i/τ)</code> on the <strong>train split, from the TRUE i</strong> — never from the prediction.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div data-tier="guided">
+<pre><code>class Line_Trainer:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        torch.manual_seed(cfg.seed)
+        self.device = pick_device(cfg.device)
+
+        data, meta = Dataset_Generator.load_dataset(cfg.dataset)
+        self.meta  = meta
+        i, dv, i0  = data["i"], data["delta_v"], data["i0"]
+
+        n  = i0.shape[0]                                   <span class="cmt"># independent windows</span>
+        g  = torch.Generator().manual_seed(cfg.split_seed)
+        perm   = torch.randperm(n, generator=g)
+        n_val  = int(round(n * cfg.val_frac))
+        va, tr = perm[:n_val], perm[n_val:]
+
+        <span class="cmt"># --- statistics: TRAIN SPLIT ONLY, or you leak ---</span>
+        self.mu, self.sd = i0[tr].mean(), i0[tr].std()
+        self.sd_dv       = dv[tr].std()                    <span class="cmt"># ONE scalar for the whole block,</span>
+                                                           <span class="cmt"># not per-timestep -- that would flatten the waveform</span>
+        ell, tau = Line_Physics().Lc, Line_Physics().t_constant
+        self.s   = (dv[tr]/ell - i[tr]/tau).pow(2).mean().sqrt().item()   <span class="cmt"># ~157 pu/s</span>
+
+        branch = torch.cat([((i0 - self.mu)/self.sd).unsqueeze(-1),
+                            dv / self.sd_dv], dim=-1)      <span class="cmt"># (n, 1+S)</span>
+        pack = lambda m: tuple(t[m].to(self.device) for t in (branch, dv, i))
+        self.tr, self.va = pack(tr), pack(va)
+        self.n_tr, self.n_va = len(tr), len(va)
+        self.t_local = data["t_local"].to(self.device)
+
+        ov = dict(cfg.model); ov["S_win"] = meta["S"]       <span class="cmt"># from the DATA, never the YAML</span>
+        self.model = ARCHS[cfg.arch](ov=ov).to(self.device)
+        self.opt   = SOAP(self.model.parameters(), lr=cfg.lr, betas=(.95,.95),
+                          weight_decay=.01, precondition_frequency=10)
+        self.sched = ReduceLROnPlateau(self.opt, factor=0.5,
+                                       patience=max(3, cfg.patience // 3))</code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>class Line_Trainer:
+    def __init__(self, cfg):
+        <span class="cmt"># seed, device</span>
+        <span class="cmt"># load dataset + meta</span>
+        <span class="cmt"># random permutation split on n windows (NOT group_split -- rows are independent)</span>
+        <span class="cmt"># mu, sd      from i0[train]        <- train split only</span>
+        <span class="cmt"># sd_dv       from dv[train]        <- ONE scalar, not per-timestep</span>
+        <span class="cmt"># s           RMS(dv/ell - i/tau) on the TRUE i, train split</span>
+        <span class="cmt"># branch = cat([ (i0-mu)/sd , dv/sd_dv ])        -> (n, 1+S)</span>
+        <span class="cmt"># pack train/val tensors onto the device</span>
+        <span class="cmt"># model from ARCHS[cfg.arch] with ov["S_win"] = meta["S"]</span>
+        <span class="cmt"># SOAP + ReduceLROnPlateau</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Construct everything a training run needs from a single config object, storing it on the instance: the split, the normalisation statistics, the residual scale, the packed device tensors, the model, the optimiser and the scheduler. Every statistic must come from the training split alone. The model's window length must come from the dataset's metadata, never from a config file.</p>
+  </div>
+
+  <h3>8.3 · <code>_epoch</code> — the 14-argument function, gone</h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>_epoch(self, split, train: bool) → dict of mean losses</code></div></div>
+    <div class="row"><div class="k">gradients</div><div class="v">the validation pass still needs them — the physics term differentiates through <code>t_query</code>. Do <strong>not</strong> wrap it in <code>no_grad</code>.</div></div>
+    <div class="row"><div class="k">normalise</div><div class="v">divide the residual by <code>self.s</code> <em>here</em>, not inside <code>compute_i</code></div></div>
+  </div>
+  <div data-tier="guided">
+<pre><code>    def _epoch(self, split, train):
+        self.model.train(train)
+        tot, nb = {"i": 0., "phys": 0., "deriv": 0., "total": 0.}, 0
+        n = self.n_tr if train else self.n_va
+        for branch, dv, target in batches(split, n, self.cfg.batch_size,
+                                          shuffle=train, drop_last=train):
+            B = branch.shape[0]
+            t_query = self.t_local.view(1, -1, 1).expand(B, -1, 1).clone().requires_grad_(True)
+            out = compute_i(self.model, t_query, branch, dv.unsqueeze(-1), self.physics)
+
+            l_i  = F.mse_loss(out["i"], target.unsqueeze(-1))
+            l_ph = (out["residual"] / self.s).pow(2).mean()
+            loss = l_i + self.cfg.w_phys * l_ph
+            if self.cfg.w_deriv:                       <span class="cmt"># the section 6.3 ablation</span>
+                loss = loss + self.cfg.w_deriv * F.mse_loss(out["didt"], didt_target)
+
+            if train:
+                self.opt.zero_grad(); loss.backward(); self.opt.step()
+            <span class="cmt"># accumulate ...</span>
+        return {k: v / nb for k, v in tot.items()}</code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def _epoch(self, split, train):
+        <span class="cmt"># model.train(train)</span>
+        <span class="cmt"># for each batch:</span>
+        <span class="cmt">#   t_query = t_local expanded to (B,T,1), .clone().requires_grad_(True)</span>
+        <span class="cmt">#   out = compute_i(...)</span>
+        <span class="cmt">#   l_i  = mse(i_pred, target)</span>
+        <span class="cmt">#   l_ph = mean((residual / s)^2)</span>
+        <span class="cmt">#   loss = l_i + w_phys*l_ph  [+ w_deriv*mse(didt_pred, didt_true)]</span>
+        <span class="cmt">#   if train: zero_grad / backward / step</span>
+        <span class="cmt"># return the per-batch means</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>One pass over a split, in training or evaluation mode, returning the mean of each loss component. The query points must carry gradient in both modes because the physics term differentiates through them. The residual is scaled by the constant computed in <code>__init__</code>.</p>
+  </div>
+
+  <h3>8.4 · <code>fit</code>, and the two guards that saved the PLL four times</h3>
+  <div class="box b-flag">
+    <span class="lbl">Port both of these on day one</span>
+    <p><strong>Divergence abort.</strong> <code>if not isfinite(val) or (ep &gt; 3 and val &gt; 50 * best)</code> → stop, set <code>status: "diverged"</code>, write <strong>no checkpoint</strong>, still write the JSON. A sweep with 100 jobs needs failures recorded, not crashed.</p>
+    <p><strong>Record <code>epochs_run</code> next to the cap.</strong> F45 and F58: four separate occasions where a comparison was confounded by training budget rather than by the thing being swept. If <code>epochs_run == epochs</code>, the run was still improving and the number is a lower bound. Print it, store it, and check it before quoting anything.</p>
+  </div>
+  <div data-tier="guided">
+<pre><code>    def fit(self):
+        best, best_state, best_ep, bad = float("inf"), None, -1, 0
+        self.history = {"train": [], "val": []}
+        self.status  = "ok"
+        for ep in range(1, self.cfg.epochs + 1):
+            trm = self._epoch(self.tr, True)
+            vam = self._epoch(self.va, False)
+            if not np.isfinite(vam["total"]) or (ep &gt; 3 and vam["total"] &gt; 50 * best):
+                self.status = "diverged"; break
+            self.history["train"].append(trm); self.history["val"].append(vam)
+            self.sched.step(vam["total"])
+            if vam["total"] &lt; best - 1e-9:
+                best, best_ep, bad = vam["total"], ep, 0
+                best_state = {k: v.detach().clone()
+                              for k, v in self.model.state_dict().items()}
+            else:
+                bad += 1
+                if bad &gt;= self.cfg.patience: break
+        if best_state is not None:
+            self.model.load_state_dict(best_state)       <span class="cmt"># always evaluate the BEST</span>
+        self.best_epoch = best_ep
+        return self.status</code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def fit(self):
+        <span class="cmt"># loop epochs: train pass, val pass</span>
+        <span class="cmt"># divergence guard -> status "diverged", break, no checkpoint</span>
+        <span class="cmt"># scheduler.step(val_total)</span>
+        <span class="cmt"># track best state dict; early stop after `patience` non-improvements</span>
+        <span class="cmt"># restore the best weights before returning -- never evaluate the last epoch</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Run the two passes each epoch, track the best validation total, restore those weights at the end, stop early on patience, and abort on divergence without writing a checkpoint. Record how many epochs actually ran so a capped run can be recognised later.</p>
+  </div>
+</section>
+
+<!-- ================= PART 9: evaluate ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">9</span><h2>Line_Evaluate.py</h2></div>
+  <p class="why">One module, five PLL files retired. It is imported by the trainer, by the plots, and by anything that asks "which checkpoint is best" — so it must import neither of them.</p>
+
+  <h3>9.1 · <code>load_checkpoint</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">returns</div><div class="v"><code>(model, ck)</code> — the model rebuilt from <code>ck["arch_cfg"]</code>, in <code>eval()</code>, on the requested device</div></div>
+    <div class="row"><div class="k">ck carries</div><div class="v"><code>state_dict, arch_cfg, train_cfg, data_meta, i0_mean, i0_s_deviation, s_deviation_dv, s_deviation_didt, mean_didt, s, t_local, history, best_ep</code> — every key is the trainer attribute of the same name</div></div>
+    <div class="row"><div class="k">the point</div><div class="v">Everything needed to <em>use</em> the model travels with it. A checkpoint that needs the YAML to be interpreted is a checkpoint that breaks when you edit the YAML.</div></div>
+  </div>
+  <div data-tier="guided">
+<pre><code>def load_checkpoint(path, device="cpu"):
+    ck  = torch.load(path, map_location="cpu", weights_only=False)
+    cls = ARCHS_BY_NAME[ck["arch_cfg"]["arch"]]
+    model = cls(cfg=ck["arch_cfg"])         <span class="cmt"># YAML never consulted</span>
+    model.load_state_dict(ck["state_dict"])
+    model.to(device).eval()
+    ck["t_local"] = ck["t_local"].to(device)
+    return model, ck</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>Read the file, pick the class from the architecture name stored inside it, rebuild from the stored config alone, load the weights, move to the device. No configuration file is read.</p>
+  </div>
+
+  <h3>9.2 · <code>rollout</code> — where the operator becomes an integrator</h3>
+  <p>This is the deployment mode: predict window 0, take your own prediction <strong>at the boundary</strong> as window 1's initial condition, repeat W times, then compare the stitched result against the true 0.5 s trajectory. One function does both arms: <code>feedback=True</code> chains its own predictions, <code>feedback=False</code> hands every window its true i₀ (teacher forcing).</p>
+  <div class="box b-flag">
+    <span class="lbl">Corrected — the handover is at t = S·dt, not at the last sample</span>
+    <p>An earlier version of this section handed over <code>i_hat[:, -1]</code>. That is the prediction at t = (S−1)·dt, <strong>one dt before</strong> the next window starts. On a 50 Hz carrier that is a slope error of ~ω·A·dt ≈ 1.9e-2 pu at every boundary. Measured on the same trained model: <strong>compounding 6.6× with the old handover, 1.57× with the correct one.</strong></p>
+    <p>The fix is the <code>t_ext</code> trick from <code>pll_infer.py</code>: query the trunk at the S sensor times <em>plus</em> t = S·dt, hand over that extra point, and drop it before stitching. The trunk is continuous in t, so this costs one extra query point.</p>
+    <p>And the older trap still applies: the handed-forward i₀ must be re-normalised with the checkpoint's own <code>i0_mean</code> / <code>i0_s_deviation</code> before it re-enters the branch.</p>
+  </div>
+  <div data-tier="guided">
+<pre><code>@torch.no_grad()
+def rollout(model, ck, traj, W, feedback=True, device="cpu"):
+    t = ck["t_local"]
+    S = t.shape[0]
+    t_ext = torch.cat([t, t[-1:] + (t[1] - t[0])]).view(1, S + 1, 1)  <span class="cmt"># + the NEXT window's t=0</span>
+    dv      = traj["delta_v"].float().view(-1, W, S).to(device)       <span class="cmt"># rows ordered (run, segment)</span>
+    i0_true = traj["i0"].float().view(-1, W).to(device)
+    R = dv.shape[0]
+    trunk = build_ff_trunk_input(t_ext.expand(R, -1, -1), model.F, model.max_freq)
+    mu, sd, sd_dv = float(ck["i0_mean"]), float(ck["i0_s_deviation"]), float(ck["s_deviation_dv"])
+
+    i0, preds = i0_true[:, 0], []
+    for w in range(W):
+        if not feedback:
+            i0 = i0_true[:, w]                         <span class="cmt"># teacher forcing</span>
+        branch = torch.cat([((i0 - mu) / sd).unsqueeze(-1), dv[:, w] / sd_dv], dim=-1)
+        i_hat = model(branch, trunk)[..., 0]           <span class="cmt"># (R, S+1)</span>
+        preds.append(i_hat[:, :S])                     <span class="cmt"># drop the boundary point</span>
+        i0 = i_hat[:, S]                               <span class="cmt"># &lt;-- AT the next window's t=0</span>
+    return torch.stack(preds, dim=1)                   <span class="cmt"># (R, W, S)</span></code></pre>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>@torch.no_grad()
+def rollout(model, ck, traj, W, feedback=True, device="cpu"):
+    <span class="cmt"># t_ext = t_local + one extra point at t = S*dt     (S+1 query points)</span>
+    <span class="cmt"># reshape the trajectory rows to (R, W, S); build the trunk ONCE</span>
+    <span class="cmt"># i0 = the TRUE initial condition of window 0</span>
+    <span class="cmt"># for w in range(W):</span>
+    <span class="cmt">#     if not feedback: i0 = true i0 of window w</span>
+    <span class="cmt">#     branch = cat([ (i0-mu)/sd , dv[:,w]/sd_dv ])   <- SAME stats as training</span>
+    <span class="cmt">#     i_hat  = model(branch, trunk)                   (R, S+1)</span>
+    <span class="cmt">#     keep i_hat[:, :S]; i0 = i_hat[:, S]             <- AT the boundary, not the last sample</span>
+    <span class="cmt"># stack -> (R, W, S)</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Chain the operator across W consecutive windows, seeding only the first with ground truth and handing each window's prediction <em>at the boundary time</em> forward as the next window's initial condition, with the checkpoint's own normalisation applied at every handover. The same function, with feedback off, gives every window its true initial condition. The first window must be identical in both modes.</p>
+  </div>
+
+  <h3>9.3 · The three metrics, and what each one isolates</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>metric</th><th>how</th><th>isolates</th></tr></thead>
+      <tbody>
+        <tr><td><code>per_window_rms</code></td><td>every window given the <strong>true</strong> i₀ (teacher forcing)</td><td>the operator alone. Falls monotonically as windows get shorter.</td></tr>
+        <tr><td><code>roll_rms</code></td><td>every window given the <strong>predicted</strong> i₀ (free running)</td><td>what you actually deploy. The only number comparable across different W, because it always covers 0.5 s.</td></tr>
+        <tr><td><code>compounding</code></td><td><code>roll_rms / per_window_rms</code></td><td>how much the handover costs. F32's U-curve is these two pulling in opposite directions.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Report all three from the start. The PLL's most useful single finding — that the W curve is U-shaped with a flat bottom — is invisible if you only log the deployed number.</p>
+</section>
+
+<!-- ================= PART 10: CLI + record ================= -->
+<section class="part">
+  <div class="part-head"><span class="num">10</span><h2>The two CLIs, and the record</h2></div>
+
+  <h3>10.1 · <code>cli_train.py</code> — config merge and sweep expansion</h3>
+  <p>The trick that keeps a sweep and a single run on one code path: <strong>any config value that is a list becomes a sweep axis.</strong> One run is just the degenerate case.</p>
+  <div data-tier="guided">
+<pre><code>import itertools, sys
+from omegaconf import OmegaConf
+
+def expand(cfg):
+    """w_phys=[0,0.3] seed=[0,1] -> 4 configs. No lists -> 1 config."""
+    flat  = {k: v for k, v in _dotted(cfg) if isinstance(v, list)}
+    if not flat:
+        yield cfg; return
+    for combo in itertools.product(*flat.values()):
+        c = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+        for k, v in zip(flat.keys(), combo):
+            OmegaConf.update(c, k, v)
+        yield c
+
+if __name__ == "__main__":
+    base = OmegaConf.load(CONFIG_DIR / "Line_Training.yml")
+    cfg  = OmegaConf.merge(base, OmegaConf.from_cli())   <span class="cmt"># key=value on argv</span>
+    for c in expand(cfg):
+        rec = Line_Trainer(c).run()
+        print(rec["tag"], rec["status"], rec.get("roll_rms"))</code></pre>
+    <p>Usage: <code>python cli_train.py w_phys=0.3 model.F=4 seed=0</code> for one run, or <code>python cli_train.py w_phys=[0,0.1,0.3] seed=[0,1,2]</code> for nine. Same path, same defaults, no way for them to drift.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code><span class="cmt"># base = OmegaConf.load("config/Line_Training.yml")</span>
+<span class="cmt"># cfg  = OmegaConf.merge(base, OmegaConf.from_cli())</span>
+<span class="cmt"># expand(): any list-valued key becomes a sweep axis (itertools.product)</span>
+<span class="cmt"># for each expanded config: Line_Trainer(c).run()</span>
+<span class="cmt"># NO training logic in this file.</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Load defaults, merge command-line overrides, expand any list-valued key into the cartesian product of runs, and hand each resulting config to the trainer. A single run and a sweep must go through identical code.</p>
+  </div>
+
+  <h3>10.2 · <code>cli_dataset.py</code> — one job</h3>
+  <div class="box b-note">
+    <span class="lbl">Make the seed non-optional</span>
+    <p>Your PLL metadata carries <code>"lhs_seed": None</code> annotated <em>"None = pre-2026-08-21, UNREPRODUCIBLE"</em>. That is a whole family of datasets that can never be regenerated. A CLI that refuses to run without <code>seed=</code> makes it impossible to repeat.</p>
+  </div>
+  <div data-tier="guided">
+<pre><code>if __name__ == "__main__":
+    cli = OmegaConf.from_cli()
+    if "seed" not in cli:
+        sys.exit("refusing to build an unreproducible dataset: pass seed=&lt;int&gt;")
+    g = Dataset_Generator(seed=int(cli.seed))
+    rec, meta = g.build_training_set()
+    g.save_dataset(rec, meta, cli.get("out", "line_stageA.npz"))
+    <span class="cmt"># the eval trajectories get a DIFFERENT seed -- genuinely held out</span>
+    tr = g_eval = Dataset_Generator(seed=int(cli.seed) + 10_000).build_trajectories()
+    ...</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>Parse <code>key=value</code> arguments, refuse to proceed without an explicit seed, build the training set and the trajectory set — the latter with a <em>different</em> seed so it is genuinely held out — and write both with their metadata.</p>
+  </div>
+
+  <h3>10.3 · The record schema</h3>
+  <p>One JSON per run in <code>sweeps/</code>, written atomically (<code>tmp.write_text(...)</code> then <code>tmp.replace(p)</code>) so a killed HPC job never leaves a half-file. Everything downstream reads this.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>group</th><th>fields</th><th>why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>identity</strong></td><td><code>tag</code>, <code>status</code>, <code>ckpt</code>, <code>git_sha</code></td><td><code>status</code> must exist so diverged runs appear in the table rather than vanishing.</td></tr>
+        <tr><td><strong>data</strong></td><td><code>dataset</code>, <code>n</code>, <code>S</code>, <code>dt</code>, <code>window_s</code>, <code>lhs_seed</code>, <code>stage</code></td><td><code>stage</code> (A/B/C) is the column that lets you compare steady vs envelope vs fault later.</td></tr>
+        <tr><td><strong>model</strong></td><td><code>arch</code>, <code>F</code>, <code>max_freq</code>, <code>hidden_dim</code>, <code>n_layers</code>, <code>width</code>, <code>params</code></td><td><code>params</code> is what makes a capacity comparison honest.</td></tr>
+        <tr><td><strong>training</strong></td><td><code>w_phys</code>, <code>w_deriv</code>, <code>lr</code>, <code>batch_size</code>, <code>seed</code>, <code>split_seed</code>, <code>epochs</code>, <strong><code>epochs_run</code></strong>, <code>best_epoch</code>, <code>seconds</code>, <code>device</code></td><td><code>epochs_run</code> vs <code>epochs</code> is the cap check. Four findings needed it.</td></tr>
+        <tr><td><strong>results</strong></td><td><code>val_i</code>, <code>r_phys</code>, <code>per_window_rms</code>, <code>roll_rms</code>, <code>compounding</code></td><td>Only <code>roll_rms</code> is comparable across window lengths.</td></tr>
+        <tr><td><strong>replay</strong></td><td><code>cfg</code> — the full merged config</td><td>Turns any past run into <code>Line_Trainer(OmegaConf.create(rec["cfg"])).run()</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>The tag</h4>
+  <div class="eq">
+{dataset_stem}_n{n}_S{S}_F{F}_mf{mf:g}_wp{w_phys:g}_s{seed}sp{split_seed}
+   + "_h{hidden_dim}"  if overridden
+   + "_L{n_layers}_w{width}"  if overridden
+   + "_{arch}"  if not deeponet
+  </div>
+  <p>Note <strong>S, not W</strong>. Window length is now a property of the training data and W is a deployment choice, so the tag names the thing that actually varied. That is the one place this project's file naming genuinely diverges from the PLL's, and it follows directly from §B.</p>
+
+  <hr class="rule">
+
+  <h3>Order of work</h3>
+  <ol>
+    <li>Fix the two residual bugs, run <strong>T5</strong>.</li>
+    <li><code>paths.py</code> and <code>Line_Training.yml</code> — five minutes, and everything below assumes them.</li>
+    <li><code>Line_Trainer.__init__</code> + <code>_epoch</code>. Overfit <strong>32 samples to ~zero</strong> before writing <code>fit</code> — if it cannot memorise 32 windows, no amount of epochs will help.</li>
+    <li><code>fit</code>, both guards, first real run. Expect validation far below anything in the PLL; if it stalls near 1e-6, that is the optimisation finding from §01, not a bug.</li>
+    <li><code>Line_Evaluate</code>, then wire <code>rollout_metrics</code> into the record.</li>
+    <li>The two CLIs. Then Stage B.</li>
+  </ol>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var body = document.body;
+  var hints = {
+    guided:   "Guided: near-complete code with commentary. Use it to get unstuck, then re-read at level 2.",
+    skeleton: "Skeleton: signatures, shapes and the hard line of each function. You write the bodies.",
+    spec:     "Spec: the contract only — what each function must guarantee and the tests it must pass."
+  };
+  var hint = document.getElementById("hint");
+  var btns = Array.prototype.slice.call(document.querySelectorAll(".tierbtn"));
+
+  function set(level) {
+    body.setAttribute("data-level", level);
+    hint.textContent = hints[level];
+    btns.forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.set === level));
+    });
+    try { localStorage.setItem("line-guide-level", level); } catch (e) {}
+  }
+
+  btns.forEach(function (b) {
+    b.addEventListener("click", function () { set(b.dataset.set); });
+  });
+
+  var saved = null;
+  try { saved = localStorage.getItem("line-guide-level"); } catch (e) {}
+  set(hints[saved] ? saved : "guided");
+})();
+</script>
+</body>
+</html>

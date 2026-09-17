@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 from pathlib import Path
-import os, json
+import os, json, time
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1") # Soap does not run on mps...sad
 import torch
 import torch.nn as nn
@@ -27,7 +27,6 @@ class Line_trainer():
         self.n_layers = line_training.model.n_layers
         self.width = line_training.model.width
         self.lr = line_training.lr
-        self.n_eval_runs = line_training.n_eval_traj
         self.batch_size = line_training.batch_size
         self.epochs = line_training.epochs
         self.model_specs = line_training.model
@@ -134,6 +133,7 @@ class Line_trainer():
         
     def fit(self):
         best, best_state, self.best_ep, bad = float("inf"), None, -1, 0
+        t_start = time.perf_counter()
         self.history = {"train": [], "val": []}
         status = "ok"
         
@@ -177,8 +177,8 @@ class Line_trainer():
         "n_layers": self.n_layers, "width": self.width,
         "params": sum(p.numel() for p in self.model.parameters()),
         "batch_size": self.batch_size, "device": str(self.device),
-        "n_eval_runs": self.n_eval_runs,
-        "epochs_run": len(self.history["val"])}
+        "epochs_run": len(self.history["val"]),
+        "seconds": round(time.perf_counter() - t_start, 1)}      # training wall time; the GPU-vs-CPU comparison needs it
         
         if status == "ok" and best_state is not None:
             self.model.load_state_dict(best_state)
@@ -188,7 +188,7 @@ class Line_trainer():
             rec.update({"best_epoch": self.best_ep, "ckpt": str(out_dir),
                     "val_i": h["i"], "physics_residual": h["physics_residual"], "derivative": h["derivative"], "total": h["total"],
                     "train_i": self.history["train"][self.best_ep - 1]["i"]})
-            ev_model, ck = self.load_checkpoint(out_dir)
+            ev_model, ck = load_checkpoint(out_dir)
             traj, traj_meta = Dataset_Generator.load_dataset(self.cfg.eval_dataset)
             assert (traj_meta["S"], traj_meta["dt"]) == (self.meta["S"], self.meta["dt"]), f"eval set S={traj_meta['S']} dt={traj_meta['dt']} != training S={self.meta['S']} dt={self.meta['dt']}"
             rec.update(rollout_metrics(ev_model, ck, traj, W=traj_meta["W"]))

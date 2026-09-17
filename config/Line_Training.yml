@@ -11,7 +11,7 @@ w_deriv: 0.0
 arch: deepONet
 runs_dir: runs
 results_dir: sweeps
-eval_dataset: line_stageA_traj.npz
+eval_dataset: line_stage_A_traj.npz
 model:
   F: 4
   max_freq: 628
