@@ -5,3 +5,4 @@ n_runs: 5000
 sensors: 5000
 time_horizon: 0.5  # s
 Windows: 40
+PROJECT_NAME: SHEN

@@ -76,7 +76,7 @@ class Dataset_Generator():
         W = self.W
         S = self.S
         
-        n__full_trajectories = 300
+        n__full_trajectories = self.n_runs
         horizon_simulation = Line_Simulator()
         horizon_simulation.S = S * W
         horizon_simulation.t = (torch.arange(horizon_simulation.S) * horizon_simulation.dt).reshape(-1,horizon_simulation.S)
@@ -84,18 +84,19 @@ class Dataset_Generator():
         dv, i, didt = horizon_simulation.batch(parameters[:, 0:1], parameters[:, 1:2], parameters[:, 2:3], parameters[:, 3:4],  parameters[:, 5:6])
         win = lambda x: x.unfold(1, S, S).reshape(-1, S)  # (n_traj*W, S)
         return {
-            "i": win(i), "delta_v": win(dv), "di/dt": didt,
+            "i": win(i), "delta_v": win(dv), "di/dt": win(didt),
             "i0": win(i)[:, 0],
             "t_local": self.line_simulator.t.squeeze(0),
             "run_id":     torch.arange(n__full_trajectories).repeat_interleave(W),
             "segment_id": torch.arange(W).repeat(n__full_trajectories),
+            "meta" : self.build_meta()
         }
         
-    def save_dataset(self, records, meta, path="../data/line_stageA.npz"):
+    def save_dataset(self, records, meta, path="line_stage_A.npz"):
         out = {}
         for k, v in records.items():
             a = v.detach().cpu().numpy() if torch.is_tensor(v) else np.asarray(v)
-            out[k] = a.astype(np.int32 if k in self._INT else np.float64 if k in self._F64 else np.float32)
+            out[k] = a.astype(np.int32 if k in _INT else np.float64 if k in _F64 else np.float32)
         out["meta_json"] = np.array(json.dumps(meta))
         p = Path(__file__).resolve().parent.parent / "data" / path
         p.parent.mkdir(exist_ok=True)

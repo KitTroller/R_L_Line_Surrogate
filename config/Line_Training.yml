@@ -9,10 +9,9 @@ lr: 3.0e-3
 w_phys: 0.3
 w_deriv: 0.0
 arch: deepONet
-device: auto
-n_eval_traj: 300
-runs_dir: runs_dir
+runs_dir: runs
 results_dir: sweeps
+eval_dataset: line_stageA_traj.npz
 model:
   F: 4
   max_freq: 628
