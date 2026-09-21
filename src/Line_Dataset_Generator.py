@@ -21,17 +21,21 @@ class Dataset_Generator():
         self._rng = np.random.default_rng(seed) if seed is not None else None
         self.init_cond = initial_conditions_config
         self.line_constants = line_constants
-        self.line_simulator = Line_Simulator()
         self.W = line_constants.Windows
         self.sensors = line_constants.sensors
-        self.S = self.line_simulator.S
         self.n_runs = line_constants.n_runs
+        self.envelope_off = initial_conditions_config.envelope_off
+        
+        self.line_simulator = Line_Simulator()
+        self.S = self.line_simulator.S
         self.t = self.line_simulator.t
+        
         
     def _lhs(self, n, samples):  # returns "samples" dimentional array of n-dimentional points
         return LatinHypercube(d=n, seed=self._rng).random(samples)
     
-    def get_init_condition_space(self, variables=5, n_runs=None, envelope_off=True):
+    def get_init_condition_space(self, variables=5, n_runs=None):
+        envelope_off = self.envelope_off
         if n_runs is None:
             n_runs = self.n_runs
         samples = self._lhs(variables, n_runs)
@@ -55,7 +59,7 @@ class Dataset_Generator():
             "S": int(self.S), "n_runs": int(self.n_runs),
             "columns": ["frequency_offset", "envelope_rate", "ic_magnitude", "ic_angle", "beta", "B"],
             "ranges": OmegaConf.to_container(self.init_cond.ranges, resolve=True),
-            "lhs_seed": self.seed,
+            "lhs_seed": self.seed, "envelope_off": self.envelope_off
         }
     
     def build_training_set(self):
@@ -110,7 +114,7 @@ class Dataset_Generator():
         meta = json.loads(z["meta_json"].item())
         return {k: (torch.from_numpy(z[k]) if as_torch else z[k]) for k in z.files if k != "meta_json"}, meta
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # this code was used to initially ensure dataset generation works, can be ignored
     g = Dataset_Generator(seed=0)
     rec, meta = g.build_training_set()
     t  = rec["t_local"] * 1e3   # ms

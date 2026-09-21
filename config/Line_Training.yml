@@ -18,3 +18,5 @@ model:
   hidden_dim: 64
   n_layers: null
   width: null
+  hard_ic: False
+  branch_act: tanh

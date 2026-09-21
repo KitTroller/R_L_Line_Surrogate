@@ -4,3 +4,4 @@ ranges:
   ic_magnitude: [0.05, 1]  # p.u.
   ic_angle: [-3.141592653589793, 3.141592653589793]  # rad
   beta: [-0.3, 0.3] # Amplitude of initial condition decay, see Line_Physics line 48
+envelope_off: False

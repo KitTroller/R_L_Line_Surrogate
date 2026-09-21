@@ -17,4 +17,4 @@ runs/
 # (`docs/*` + negations; a bare `docs` could not be un-ignored per file.)
 docs/*
 !docs/Notes.md
-!docs/Line_Generator_Build.html
+docs/Line_Generator_Build.html

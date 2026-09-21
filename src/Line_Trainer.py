@@ -68,6 +68,12 @@ class Line_trainer():
         ov = dict(line_training.model)
         ov["S_win"] = self.meta["S"]
         self.model = ARCHS[line_training.arch](ov=ov).to(self.device)
+        
+        if getattr(self.model, "hard_ic", False):
+            self.model.ic_stats.copy_(torch.tensor([float(self.i0_mean), float(self.i0_s_deviation), self.meta["S"] * self.meta["dt"]]))
+        elif line_training.model.get("hard_ic", False):
+            raise ValueError(f"hard_ic is not implemented for arch={line_training.arch}")
+        
         self.opt = SOAP(self.model.parameters(), lr=line_training.lr, betas=(0.95,0.95), weight_decay=0.01, precondition_frequency=10)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt, factor=0.5, patience=max(3, line_training.patience // 3))
     
@@ -141,16 +147,19 @@ class Line_trainer():
            + (f"_h{self.model_specs.hidden_dim}" if self.model_specs.hidden_dim is not None else "")
            + (f"_L{self.model_specs.n_layers}" if self.model_specs.n_layers is not None else "")
            + (f"_w{self.model_specs.width}" if self.model_specs.width is not None else "")
-           + ("" if self.arch == "deepONet" else f"_{self.arch}"))
+           + ("" if self.arch == "deepONet" else f"_{self.arch}") + ("_hic" if getattr(self.model, "hard_ic", False) else "")
+           + (f"_b{self.model.branch_act}" if getattr(self.model, "branch_act", "tanh") != "tanh" else ""))
+
+
         
         
         for ep in range(1, self.epochs + 1):
             training_losses = self._epoch(self.training, train=True)
             validation_losses = self._epoch(self.validation, train=False)
             
-            if (not np.isfinite(validation_losses["total"])) or (ep > 3 and validation_losses["total"] > 50 * best):
+            if (not np.isfinite(validation_losses["total"])):  # or (ep > 3 and validation_losses["total"] > 50 * best) removed because SOAP actually had a legit case where val_total > 50
                 status = "diverged"
-                print(f"[{tag}] DIVERGED at epoch {ep}: val total {validation_losses['total']:.3e}" f"vs best {best:.3e} -- aborting")
+                print(f"[{tag}] non-finite loss at epoch {ep} -- aborting");
                 break
             self.history["train"].append(training_losses)
             self.history["val"].append(validation_losses)
@@ -177,8 +186,10 @@ class Line_trainer():
         "n_layers": self.n_layers, "width": self.width,
         "params": sum(p.numel() for p in self.model.parameters()),
         "batch_size": self.batch_size, "device": str(self.device),
-        "epochs_run": len(self.history["val"]),
-        "seconds": round(time.perf_counter() - t_start, 1)}      # training wall time; the GPU-vs-CPU comparison needs it
+        "epochs_run": len(self.history["val"]),     # training wall time; the GPU-vs-CPU comparison needs it
+        "seconds": round(time.perf_counter() - t_start, 1),
+        "hard_ic": getattr(self.model, "hard_ic", False),
+        "branch_act": getattr(self.model, "branch_act", "tanh"),}      
         
         if status == "ok" and best_state is not None:
             self.model.load_state_dict(best_state)

@@ -3,6 +3,8 @@
     python src/analysis/plot_sweep.py x=w_phys
     python src/analysis/plot_sweep.py x=w_phys metric=compounding
     python src/analysis/plot_sweep.py x=F match=line_stage_A_n5000        # only tags containing this
+    python src/analysis/plot_sweep.py x=hard_ic 'match=[line_stage_A_n5000,_wp0.3_]'   # ALL must appear
+    python src/analysis/plot_sweep.py x=w_phys match=line_stage_A_n5000 exclude=_hic   # none may appear
 
 Writes graphs/sweep_<x>_<metric>.png and prints every run, best first.
 
@@ -19,16 +21,31 @@ from style import ROOT, C, save, plt
 # Record keys that define "the same experiment". Anything here that varies (other than x and
 # seed) means the runs are not comparable on one axis.
 SAME = ["dataset", "eval_dataset", "S", "dt", "F", "max_freq", "w_phys", "w_deriv", "split_seed",
-        "lr", "batch_size", "arch", "n_layers", "width"]
+        "lr", "batch_size", "arch", "n_layers", "width", "hard_ic", "branch_act"]
+# Value a key had before it existed in the record, so older records still compare correctly.
+DEFAULTS = {"hard_ic": False, "branch_act": "tanh"}
+
+
+def as_list(v):
+    """match=foo -> ['foo'];  'match=[a,b]' -> ['a', 'b'];  absent -> []."""
+    if v is None:
+        return []
+    if isinstance(v, (str, int, float, bool)):
+        return [str(v)]
+    return [str(s) for s in v]
+
 
 if __name__ == "__main__":
     cli = OmegaConf.from_cli()
     x = cli.get("x") or sys.exit("pass x=<record key>, e.g. x=w_phys")
     metric = cli.get("metric", "predicted_error_rms")
-    match = cli.get("match", "")
+    match, exclude = as_list(cli.get("match")), as_list(cli.get("exclude"))
 
     recs = [json.loads(p.read_text()) for p in sorted((ROOT / "sweeps").glob("*.json"))]
-    recs = [r for r in recs if match in r["tag"]]
+    recs = [r for r in recs if all(m in r["tag"] for m in match) and not any(e in r["tag"] for e in exclude)]
+    for r in recs:
+        for k, v in DEFAULTS.items():
+            r.setdefault(k, v)
     bad = [r["tag"] for r in recs if r["status"] != "ok"]
     if bad:
         print(f"!! {len(bad)} diverged run(s) excluded: {', '.join(bad)}")
@@ -42,7 +59,7 @@ if __name__ == "__main__":
     varies = {k: sorted({str(r.get(k)) for r in recs}) for k in SAME if k != x}
     varies = {k: v for k, v in varies.items() if len(v) > 1}
     if varies:
-        sys.exit(f"these runs also differ in {varies} -- narrow them with match=")
+        sys.exit(f"these runs also differ in {varies} -- narrow them with match= and/or exclude=")
 
     groups = defaultdict(list)
     for r in recs:
@@ -65,9 +82,11 @@ if __name__ == "__main__":
         ax.set_yscale("log")
     n_seeds = sorted({len(g) for g in groups.values()})
     ax.set_title(f"{metric} vs {x}")
-    fig.suptitle(f"{match or 'all runs in sweeps/'}  ·  dots = seeds, line = median, "
+    fig.suptitle(f"{' + '.join(match) or 'all runs in sweeps/'}"
+                 f"{'  minus ' + ', '.join(exclude) if exclude else ''}  ·  dots = seeds, line = median, "
                  f"n = {'/'.join(map(str, n_seeds))} per point", x=0.01, ha="left", fontsize=9, color=C["muted"])
-    save(fig, f"sweep_{x}_{metric}.png")
+    suffix = "".join(f"_{m.strip('_')}" for m in match)
+    save(fig, f"sweep_{x}_{metric}{suffix}.png")
 
     print(f"\n{'tag':62s} {x:>10s} {'seed':>4s} {metric:>20s} {'comp':>6s} {'epochs':>7s} {'s':>6s}")
     for r in sorted(recs, key=lambda r: r[metric]):

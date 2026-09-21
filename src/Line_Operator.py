@@ -8,6 +8,8 @@ model_config = OmegaConf.load(CONFIG_DIR / "Line_DeepONet_Models.yml")
 initial_conditions_config = OmegaConf.load(CONFIG_DIR / "Line_Initial_Conditions.yml")
 line_constants = OmegaConf.load(CONFIG_DIR / "Line_Constants.yml")
 
+ACTS = {"tanh":nn.Tanh, "linear": nn.Identity}
+
 class MLP(nn.Module):
     def __init__(self, sizes, act=nn.Tanh):
         super().__init__()
@@ -31,10 +33,14 @@ class Unstacked_DeepONet(nn.Module):
             self.max_freq     = cfg["max_freq"]
             self.trunk_sizes  = list(cfg["trunk_sizes"])
             self.branch_sizes = list(cfg["branch_sizes"])
+            self.hard_ic = cfg.get("hard_ic", False)
+            self.branch_act = cfg.get("branch_act", "tanh")
         else:
             self.hidden_dim = ov.get("hidden_dim", model_config.hidden_dim)
+            self.hard_ic = ov.get("hard_ic", False)
             self.output_dim = ov.get("output_dim", model_config.output_dim)
             n_layers, width = ov.get("n_layers", None), ov.get("width", None) # Need this to tune width and depth as Hyperparameters
+            self.branch_act = ov.get("branch_act", "tanh")
             if n_layers is None and width is None:
                 self.branch_sizes = list(model_config.sizes.branch_net)
                 self.trunk_sizes = list(model_config.sizes.trunk_net)
@@ -54,13 +60,15 @@ class Unstacked_DeepONet(nn.Module):
             self.branch_sizes[-1] = self.hidden_dim * self.output_dim  # one block per head because it felt cool currently dormant 1 head
         
         self.trunk_net = MLP(self.trunk_sizes)
-        self.branch_net = MLP(self.branch_sizes)
+        self.branch_net = MLP(self.branch_sizes, act=ACTS[self.branch_act])
+        if self.hard_ic:
+            self.register_buffer("ic_stats", torch.tensor([0.0, 1.0, 1.0]))   # [mu, sd, T_w], set by the trainer
     
     def config(self):
         """Everything load_checkpoint needs"""
         return {"arch": "Unstacked_DeepONet", "hidden_dim": self.hidden_dim, "output_dim": self.output_dim,
                 "F": self.F, "max_freq": self.max_freq, "trunk_sizes": self.trunk_sizes,
-                "branch_sizes": self.branch_sizes,}
+                "branch_sizes": self.branch_sizes, "hard_ic": self.hard_ic, "branch_act": self.branch_act}
             
     def forward(self, branch_input, trunk_input):
         batch_size, num_timesteps,  _ = trunk_input.shape
@@ -70,8 +78,14 @@ class Unstacked_DeepONet(nn.Module):
         branch_output = branch_output.view(batch_size, self.output_dim, self.hidden_dim) # 2nd argument: output dimention, 3rd argument: a hidden dimention assumed common among all
         trunk_output = trunk_output.view(batch_size, num_timesteps, self.hidden_dim)
         
-        output = torch.einsum("boh,bth->bot", branch_output, trunk_output)
-        return output.transpose(1, 2)
+        output = torch.einsum("boh,bth->bot", branch_output, trunk_output).transpose(1, 2)
+        if self.hard_ic:
+            mu, sd, T_w = self.ic_stats
+            i0 = branch_input[:, :1] * sd + mu      # undo the branch normalisation, (B, 1)
+            t = trunk_input[..., :1]                # trunk channel 0 is raw t, (B, T, 1)
+            output = i0.unsqueeze(1) + (t / T_w) * output
+        return output
+
     
 class Single_PINN(nn.Module):
     """Used as a benchmark"""

@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # Keys that appear in the run tag (see Line_trainer.fit). Sweeping any OTHER key gives every run the
 # same tag, and each run silently overwrites the previous one's .pth and .json. Keep in sync with fit().
 TAGGED = {"dataset", "seed", "split_seed", "w_phys", "arch",
-          "model.F", "model.max_freq", "model.hidden_dim", "model.n_layers", "model.width"}
+          "model.F", "model.max_freq", "model.hidden_dim", "model.n_layers", "model.width",
+          "model.hard_ic", "model.branch_act"}
 
 
 def _dotted(d, prefix=""):
