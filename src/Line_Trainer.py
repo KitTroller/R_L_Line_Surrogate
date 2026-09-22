@@ -164,7 +164,7 @@ class Line_trainer():
             self.history["train"].append(training_losses)
             self.history["val"].append(validation_losses)
             self.scheduler.step(validation_losses["total"])
-            improved = validation_losses["total"] < best - 1e-9
+            improved = validation_losses["total"] < best * (1 - 1e-4)
             if improved:
                 best, self.best_ep, bad = validation_losses["total"], ep, 0
                 best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
@@ -174,7 +174,7 @@ class Line_trainer():
                 f"derivative {training_losses['derivative']:.3e} | "
                 f"[{ep:4d}] validation i {validation_losses['i']:.3e} physics {validation_losses['physics_residual']:.3e} "
                 f"derivative {validation_losses['derivative']:.3e}{'  *' if improved else ''}")
-            if bad >= self.patience:
+            if bad >= self.patience and ep > 500:
                 print(f"early stop at {ep} (best {self.best_ep})"); break
                 
         rec = {"tag": tag, "status": status, "dataset": self.dataset_path,

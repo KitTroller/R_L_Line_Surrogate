@@ -112,7 +112,7 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:8px;paddin
 pre code{background:none;padding:0;font-size:12.8px}
 .eq{background:var(--sunk);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;
   padding:14px 18px;margin:0 0 14px;overflow-x:auto;font-family:"IBM Plex Mono",monospace;
-  font-size:13.2px;line-height:1.85}
+  font-size:13.2px;line-height:1.85;white-space:pre}
 .eq .an{color:var(--ink3)}
 .cmt{color:var(--ink3)}
 
@@ -176,6 +176,7 @@ figcaption{font-size:13.5px;color:var(--ink2);margin-top:10px;padding-left:12px;
   <p class="eyebrow">Rc_Lc_Line_attempt · docs</p>
   <h1>Building the Line Generator</h1>
   <p class="standfirst">Four files — <code>Line_Physics.py</code>, <code>Line_Dataset_Generator.py</code>, <code>line_operator.py</code>, <code>line_residual.py</code> — at three depths. Read the confusions first; they are all the same confusion wearing different hats.</p>
+  <p class="standfirst"><strong>New, 2026-09-21:</strong> <a href="#stage-c">§11 · Stage C — faults and noise</a>. Every code block in it was run inside a copy of the repo before it was written down.</p>
   <p class="mast-meta">
     <span>ℓ = 3.1831e-4 s</span><span>τ = 63.662 ms</span><span>|Z| = 0.100125 pu ∠ 87.138°</span><span>no integrator</span>
   </p>
@@ -725,6 +726,11 @@ di/dt  = r·A·cos θ  −  A·ω_g·sin θ  −  (B/τ)·h
     </table>
   </div>
 
+  <div class="box b-flag">
+    <span class="lbl">Superseded on 2026-09-21 — see §11</span>
+    <p>Stage B became the <code>drift</code> event of Stage C, and faults are no longer an <code>env_rate</code> range: they are ramps in amplitude and phase with rounded corners, built in <a href="#stage-c">§11</a>. The table above is kept as the original plan.</p>
+  </div>
+
   <p>One thing to expect at Stage C, so it does not surprise you: in steady state the in-phase part of Δv is 5% of the quadrature part, and the envelope contributes 0.44%. During a 5 ms forced decay the in-phase part becomes <strong>−0.1416</strong> — 82% of the quadrature, and with the opposite sign. The regime where the dynamics are nearly invisible and the regime where they dominate are the same dataset. That is a good argument for reporting them separately from the very first run.</p>
 
   <hr class="rule">
@@ -1265,6 +1271,7 @@ model:                   <span class="cmt"># merged into `ov` and handed to the 
     <p>An earlier version of this section handed over <code>i_hat[:, -1]</code>. That is the prediction at t = (S−1)·dt, <strong>one dt before</strong> the next window starts. On a 50 Hz carrier that is a slope error of ~ω·A·dt ≈ 1.9e-2 pu at every boundary. Measured on the same trained model: <strong>compounding 6.6× with the old handover, 1.57× with the correct one.</strong></p>
     <p>The fix is the <code>t_ext</code> trick from <code>pll_infer.py</code>: query the trunk at the S sensor times <em>plus</em> t = S·dt, hand over that extra point, and drop it before stitching. The trunk is continuous in t, so this costs one extra query point.</p>
     <p>And the older trap still applies: the handed-forward i₀ must be re-normalised with the checkpoint's own <code>i0_mean</code> / <code>i0_s_deviation</code> before it re-enters the branch.</p>
+    <p><strong>Update for Stage C:</strong> with trunk features up to 1 kHz, even this one-step extrapolation to t = S·dt goes wrong (19× the on-grid error). Stage C evaluation sets make neighbouring windows share their boundary sample instead — see <a href="#stage-c">§11.7</a>.</p>
   </div>
   <div data-tier="guided">
 <pre><code>@torch.no_grad()
@@ -1418,6 +1425,608 @@ if __name__ == "__main__":
   </ol>
 </section>
 
+<!-- ================= PART 11: Stage C ================= -->
+<section class="part" id="stage-c">
+  <div class="part-head"><span class="num">11</span><h2>Stage C — faults and noise</h2><span class="tag t-flag">Next</span></div>
+  <p class="why">Stage A is saturated. Its inputs span about 5 directions (Notes F11), so a linear branch learned it from 32 windows and still fails on a harmonic it never saw. Stage C adds the directions a simulator will present — fast current changes, phase jumps, broadband content — and keeps what makes this project special: an exact answer for every sample, still with no integrator.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>file</th><th>you add</th><th>§</th></tr></thead>
+      <tbody>
+        <tr><td><code>Line_Physics.py</code></td><td><code>ramp()</code> (module level), <code>Line_Simulator.event_trajectory</code>, <code>Line_Simulator.multisine</code></td><td class="n">11.2–11.4</td></tr>
+        <tr><td><code>Line_Initial_Conditions.yml</code></td><td>a <code>stage_C:</code> block</td><td class="n">11.5</td></tr>
+        <tr><td><code>Line_Dataset_Generator.py</code></td><td><code>sample_events</code>, <code>event_currents</code>, <code>build_event_set</code>, <code>build_event_trajectories</code></td><td class="n">11.5–11.7</td></tr>
+        <tr><td><code>Line_Evaluate.py</code></td><td>a <code>shared_boundary</code> keyword on <code>rollout</code>; <code>metrics_by_event</code>; two lines in the trainer</td><td class="n">11.7, 11.9</td></tr>
+        <tr><td><em>mine</em></td><td><code>CLI_Dataset.py stage=C noise=…</code>, per-event plots</td><td class="n">11.10</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.1 · One rule, one formula</h3>
+  <p><strong>Inductor current cannot step.</strong> Whatever a fault does to the voltages, the current moves continuously, and your supervisor's bound is that 1 pu takes at least 5 ms to disappear. So every "step" is a ramp. A fault is then fully described by two slow functions: the amplitude <code>A(t)</code> and the phase <code>φ(t)</code> of the current. Differentiate the carrier with the product and chain rules, exactly as in §1.3:</p>
+  <div class="eq">
+θ(t)   = ω_g·t + φ(t)
+i      = A(t)·cos θ
+di/dt  = A′(t)·cos θ  −  A(t)·(ω_g + φ′(t))·sin θ
+         <span class="an">└ amplitude moves ┘   └── the frequency is ω_g + φ′ while φ ramps ──┘</span>
+Δv     = ℓ·di/dt + R·i                       <span class="an">← get_delta_V, unchanged</span>
+  </div>
+  <p>Put <code>A = I₀·e^(r t)</code> and <code>φ′ = 0</code> and this is the Stage A/B formula you already have. Nothing about the method changes; only the two functions get richer.</p>
+  <div class="box b-note">
+    <span class="lbl">Stage B folds into this</span>
+    <p><code>I₀·e^(r t)</code> with r up to 1.386/s doubles a 1 pu current to 2 pu — past any converter's current limit. A slow straight line from I₀ to I₁ over the whole 0.5 s does the same job and stays in range. It is just the <code>drift</code> event below.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.2 · <code>ramp</code> — a straight line with rounded corners</h3>
+  <p>Every event is built from one primitive: a ramp from 0 to 1. The obvious choice, a straight line with sharp corners, turns out to be the one choice that cannot work — the box below shows why, with numbers. So the ramp is straight in the middle, exactly as the supervisor and the wind-turbine paper describe a linear recovery, but its two corners are rounded over about 1 ms.</p>
+
+  <div class="box b-flag">
+    <span class="lbl">Measured: a sharp corner costs a factor of 10⁷</span>
+    <p>At a sharp corner di/dt jumps, so Δv jumps. The branch only sees Δv <em>at the samples</em>, and a jump makes what happens <em>between</em> two samples matter: the current after the corner depends on it, the samples do not show it. To measure the cost without training anything, fit the <strong>best possible linear map</strong> from the branch inputs to the current by least squares (T11 in §11.8) — a floor no linear branch can beat:</p>
+    <div class="scroll" style="margin-top:10px">
+      <table>
+        <thead><tr><th>ramp corners</th><th class="n">best linear map, val MSE</th><th class="n">windows with a corner</th><th class="n">windows without</th></tr></thead>
+        <tbody>
+          <tr><td>Stage A (no ramps)</td><td class="n">2e-16</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>sharp</td><td class="n"><strong>8.1e-7</strong></td><td class="n">2.7e-6</td><td class="n">5e-9</td></tr>
+          <tr><td>raised cosine over the whole ramp</td><td class="n">1.6e-10</td><td class="n">5e-10</td><td class="n">5e-13</td></tr>
+          <tr><td>straight, corners rounded over 0.2 ms</td><td class="n">1.9e-11</td><td class="n">6e-11</td><td class="n">4e-13</td></tr>
+          <tr class="hi"><td>straight, corners rounded over 1 ms</td><td class="n"><strong>1.3e-14</strong></td><td class="n">4e-14</td><td class="n">2e-16</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A sharp corner is realistic (a setpoint step through a PI controller makes the converter voltage jump), but in sampled data it is also ambiguous. Rounding the corners over 1 ms — ten samples, far shorter than any ramp — removes the ambiguity and costs nothing physically: a real current controller has a finite bandwidth anyway.</p>
+  </div>
+
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>ramp(t, start, length, corner=1e-3) → (value, slope)</code>, a plain function in <code>Line_Physics.py</code></div></div>
+    <div class="row"><div class="k">shapes</div><div class="v"><code>t</code> is <code>(1, N)</code>; <code>start</code>, <code>length</code> are <code>(n, 1)</code> in seconds; both outputs <code>(n, N)</code></div></div>
+    <div class="row"><div class="k">does</div><div class="v">rises from 0 to 1 with slope <code>1/length</code> in the middle, starting at <code>start</code> and finishing at <code>start + length + corner</code>; <code>slope</code> is its exact derivative</div></div>
+    <div class="row"><div class="k">why this length</div><div class="v">the steepest slope is exactly <code>1/length</code>, so the supervisor's "1 pu in no less than 5 ms" applies to <code>length</code> directly</div></div>
+  </div>
+  <p>Build it the way you would sketch it — from the slope. The slope rises smoothly from 0 to <code>1/length</code> over one corner, stays flat, and falls back over the other corner. A smooth 0 → 1 step is the raised cosine, so the slope is <em>one step minus a later step</em>, and the ramp is the integral of that:</p>
+  <div class="eq">
+x        = clamp(t − s, 0, c)
+step(s)  = (1 − cos(π x / c)) / 2                              <span class="an">0 → 1 over [s, s + c]</span>
+int(s)   = x/2 − (c / 2π)·sin(π x / c)  +  max(t − s − c, 0)    <span class="an">its integral, written out</span>
+
+slope    = [ step(start) − step(start + length) ] / length
+value    = [ int(start)  − int(start + length)  ] / length       <span class="an">→ 1 once both corners have passed</span>
+  </div>
+  <p>The slope's own derivative is continuous too (sin is zero at both ends of a corner), so di/dt and Δv are smooth everywhere and the physics residual can be exactly zero at every sample. <code>corner=0</code> gives back the sharp ramp, for the comparison.</p>
+
+  <div data-tier="guided">
+<pre><code>def soft_step(t, s, c):
+    """A raised-cosine step 0 -> 1 over [s, s + c], and its integral from -infinity to t."""
+    x = (t - s).clamp(0, c)
+    step = 0.5 * (1 - torch.cos(torch.pi * x / c))
+    integral = x / 2 - c / (2 * torch.pi) * torch.sin(torch.pi * x / c) + (t - s - c).clamp(min=0)
+    return step, integral
+
+
+def ramp(t, start, length, corner=1e-3):
+    """Straight 0 -> 1 ramp of slope 1/length, corners rounded over `corner` seconds.
+    t (1,N); start, length (n,1). Returns value and its exact d/dt, (n,N) each."""
+    if corner == 0:                                        <span class="cmt"># the sharp ramp, kept for the comparison</span>
+        inside = (t &gt;= start) &amp; (t &lt; start + length)
+        return ((t - start) / length).clamp(0, 1), inside / length
+    step_a, int_a = soft_step(t, start, corner)
+    step_b, int_b = soft_step(t, start + length, corner)
+    return (int_a - int_b) / length, (step_a - step_b) / length</code></pre>
+    <p>Check the tail of <code>integral</code>: once t is past the corner, x = c and the sine term is zero, so it is <code>c/2 + (t − s − c) = t − s − c/2</code> — a straight line, as the integral of a step must be. The difference of two of them is constant at <code>length</code>, hence value 1.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>def soft_step(t, s, c):
+    <span class="cmt"># x = t - s clamped to [0, c]</span>
+    <span class="cmt"># step     = raised cosine of x/c                       0 -&gt; 1</span>
+    <span class="cmt"># integral = its integral: two terms inside the corner, + (t - s - c) after it</span>
+
+def ramp(t, start, length, corner=1e-3):
+    <span class="cmt"># corner == 0: sharp ramp -- clamp((t-start)/length) and its indicator slope</span>
+    <span class="cmt"># else: slope = (step at start - step at start+length) / length</span>
+    <span class="cmt">#       value = (integral at start - integral at start+length) / length</span></code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>A function of time that rises from 0 to 1 with a straight middle of slope 1/length and two corners rounded over a given width, returned with its exact derivative, and with a zero-width option that gives the sharp ramp. It must pass T6 everywhere — corners included — and end at exactly 1.</p>
+  </div>
+
+  <div class="box b-note">
+    <span class="lbl">Starts on the sample grid — still worth doing</span>
+    <p>With rounded corners an off-grid start no longer hurts. Draw starts and lengths as whole numbers of samples anyway and multiply by <code>dt</code> at the last moment: an EMT simulator puts its events on time steps, the per-window <code>transition</code> flag (§11.6) becomes exact integer arithmetic, and <code>corner=0</code> stays a fair comparison.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.3 · <code>Line_Simulator.event_trajectory</code></h3>
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>event_trajectory(p, t, corner=1e-3) → (i, didt)</code></div></div>
+    <div class="row"><div class="k">p</div><div class="v">dict of <code>(n, 1)</code> float64 tensors: <code>I0, phi0, freq_offset</code>; amplitude ramps <code>a1, s1, T1, a2, s2, T2</code>; phase ramp <code>dphi, sp, Tp</code></div></div>
+    <div class="row"><div class="k">why slots</div><div class="v">Every event is "at most two amplitude ramps and one phase ramp". A fixed set of slots keeps it one vectorised call for all n trajectories; an unused slot has zero height.</div></div>
+  </div>
+  <div class="eq">
+A(t) = I₀ + a₁·ramp(t; s₁, T₁) + a₂·ramp(t; s₂, T₂)          A′(t) = a₁·slope₁ + a₂·slope₂
+φ(t) = φ₀ + Δφ·ramp(t; s_p, T_p)                              φ′(t) = Δφ·slope_p
+  </div>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>event</th><th>a₁ · ramp 1</th><th>a₂ · ramp 2</th><th>Δφ · phase ramp</th><th>ranges</th></tr></thead>
+      <tbody>
+        <tr><td><code>clean</code></td><td>0</td><td>0</td><td>0</td><td>Stage A inside Stage C</td></tr>
+        <tr><td><code>drift</code></td><td>(I₁ − I₀) from 0 over the whole horizon</td><td>0</td><td>0</td><td>I₁ ∈ [0.05, 1] pu — replaces Stage B</td></tr>
+        <tr><td><code>step</code></td><td>(I₁ − I₀) from t_f over T_r</td><td>0</td><td>0</td><td>T_r ∈ [5, 20] ms — a P* / V_ref setpoint change</td></tr>
+        <tr class="hi"><td><code>dip</code></td><td>(I_d − I₀) from t_f over T_d</td><td>(I₀ − I_d) from t_f + T_d + T_h over T_rec</td><td>0</td><td>I_d = I₀·(1 − depth), depth ∈ [0.3, 1]; T_d ∈ [5, 10] ms; hold T_h ∈ [20, 150] ms; linear recovery T_rec ∈ [50, 300] ms</td></tr>
+        <tr><td><code>phase_jump</code></td><td>0</td><td>0</td><td>Δφ from t_f over T_φ</td><td>Δφ ∈ [−60°, 60°] (TPWRS uses 20°); T_φ ∈ [2, 10] ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Onset t_f ∈ [0.05, 0.30] s for every event, so a dip's recovery mostly fits inside 0.5 s (when it does not, the trajectory simply ends mid-recovery — the windows do not care). Levels stay in [0.05, 1] pu: 1 pu is the assumed current limit — a question for your supervisor.</p>
+
+  <div data-tier="guided">
+<pre><code>    def event_trajectory(self, p, t, corner=1e-3):
+        """Stage C current and its exact derivative. p: dict of (n,1); t: (1,N). Returns (n,N) each."""
+        omega_g = OMEGA_BASE + 2 * torch.pi * p["freq_offset"]
+        r1, r1_dot = ramp(t, p["s1"], p["T1"], corner)
+        r2, r2_dot = ramp(t, p["s2"], p["T2"], corner)
+        rp, rp_dot = ramp(t, p["sp"], p["Tp"], corner)
+
+        A       = p["I0"] + p["a1"] * r1 + p["a2"] * r2
+        A_dot   = p["a1"] * r1_dot + p["a2"] * r2_dot
+        phi     = p["phi0"] + p["dphi"] * rp
+        phi_dot = p["dphi"] * rp_dot
+
+        theta = omega_g * t + phi
+        i     = A * torch.cos(theta)
+        didt  = A_dot * torch.cos(theta) - A * (omega_g + phi_dot) * torch.sin(theta)
+        return i, didt</code></pre>
+    <p>Compare it line by line with your <code>trajectory()</code>: <code>envelope_rate * A</code> became <code>A_dot</code>, and <code>omega_g</code> in the sine term became <code>omega_g + phi_dot</code>. The B term is not here on purpose — it is added per window in §11.6.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def event_trajectory(self, p, t, corner=1e-3):
+        <span class="cmt"># omega_g from freq_offset, as in trajectory()</span>
+        <span class="cmt"># three ramp() calls: (s1,T1), (s2,T2), (sp,Tp)</span>
+        <span class="cmt"># A, A_dot, phi, phi_dot from the boxed formulas</span>
+        <span class="cmt"># theta = omega_g*t + phi</span>
+        <span class="cmt"># i, didt -- didt from calculus, never from the array i</span>
+        return i, didt</code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Given per-trajectory ramp parameters and a time grid, return the current with a piecewise amplitude and phase, and its exact derivative, for all trajectories at once. With every ramp height zero it must reproduce <code>trajectory()</code> with <code>envelope_rate = 0, B = 0</code> exactly.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.4 · <code>Line_Simulator.multisine</code> — white noise in Δv, made backwards</h3>
+  <div class="box b-flag">
+    <span class="lbl">Why not add random numbers to Δv sample by sample</span>
+    <p>The exact response to per-sample (zero-order-hold) noise exists — <code>i[k+1] = a·i[k] + (1 − a)·n[k]/R</code> with <code>a = e^(−dt/τ)</code> — and it is a correct (Δv, i) pair. But that current has a kink at <em>every</em> sample, because Δv jumps at every sample. A smooth network cannot bend 125 times per window, and the physics residual at each sample would be off by about half the jump: Δn/(2ℓ) ≈ 11 pu/s for 0.005 pu of noise, against the 157 pu/s scale. The physics loss would sit near 5e-3 — 10⁴ times Stage A's — and fight the data.</p>
+  </div>
+  <p>Instead, build the noise from K random tones — a <strong>multisine</strong>, the standard system-identification excitation. With random frequencies across a band and random phases, the sum is statistically band-limited white noise. And each tone is a steady-state sinusoid, exactly like the Stage A carrier, so you already know its current: the tone's voltage divided by the line impedance at that frequency.</p>
+  <div class="eq">
+Δv_noise(t) = Σₖ v·cos(ωₖ t + ψₖ)                 v = σ·√(2/K)        <span class="an">← RMS of the sum is σ</span>
+i_noise(t)  = Σₖ (v/|Zₖ|)·cos(ωₖ t + ψₖ − ∠Zₖ)      |Zₖ| = √(R² + (ωₖℓ)²),   ∠Zₖ = atan(ωₖℓ/R)
+di_noise/dt = −Σₖ (v/|Zₖ|)·ωₖ·sin(ωₖ t + ψₖ − ∠Zₖ)
+  </div>
+  <div class="split">
+    <div>
+      <h4>Band: 100 Hz – 1 kHz</h4>
+      <p>Below it the line's admittance explodes: at DC it is 1/R = 200, so 0.005 pu of slow noise in Δv would push 1 pu through the line. Above 1 kHz the current response is tiny (|Z| &gt; 2 pu) and the trunk would need Fourier features beyond 1 kHz.</p>
+    </div>
+    <div>
+      <h4>Level: σ ∈ [0, 0.005] pu, per trajectory</h4>
+      <p>About 5% of the ~0.1 pu steady Δv. Drawing σ per trajectory mixes clean and noisy data. 40 tones per trajectory is plenty to look like noise inside a 12.5 ms window.</p>
+    </div>
+  </div>
+  <div class="box b-note">
+    <span class="lbl">This is noise the current really feels</span>
+    <p>The line responds to it, and the target current contains the response. That is not <em>measurement</em> noise, where the model should see a noisy Δv but predict the clean current — a different problem with a different answer. Question 6 for your supervisor.</p>
+  </div>
+  <div data-tier="guided">
+<pre><code>    def multisine(self, sigma, f, psi, t):
+        """Band-limited white noise in dv, generated backwards.
+        sigma (n,1) noise RMS; f, psi (n,K) tone frequencies [Hz] and phases; t (1,N).
+        Returns the current it drives and that current's derivative, (n,N) each."""
+        ell, R = self.physics.Lc, self.physics.Rc
+        w     = 2 * torch.pi * f                                   <span class="cmt"># (n,K)</span>
+        Z_mag = torch.sqrt(R**2 + (w * ell)**2)
+        Z_ang = torch.atan(w * ell / R)                            <span class="cmt"># atan2 would need a tensor R</span>
+        c     = sigma * (2 / f.shape[1]) ** 0.5 / Z_mag            <span class="cmt"># current amplitude per tone</span>
+
+        i_n    = torch.zeros(f.shape[0], t.shape[1], dtype=torch.float64)
+        didt_n = torch.zeros_like(i_n)
+        for k in range(f.shape[1]):                                <span class="cmt"># a loop over K avoids an (n,K,N) tensor</span>
+            th = w[:, k:k+1] * t + psi[:, k:k+1] - Z_ang[:, k:k+1]
+            i_n    += c[:, k:k+1] * torch.cos(th)
+            didt_n -= c[:, k:k+1] * w[:, k:k+1] * torch.sin(th)
+        return i_n, didt_n</code></pre>
+    <p>The loop matters: 1000 trajectories × 40 tones × 5000 samples in float64 is 1.6 GB as one tensor, and 40 MB per tone.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def multisine(self, sigma, f, psi, t):
+        <span class="cmt"># w = 2 pi f;  |Z| and angle(Z) per tone         (n,K)</span>
+        <span class="cmt"># tone voltage amplitude  v = sigma*sqrt(2/K);  current amplitude c = v/|Z|</span>
+        <span class="cmt"># loop over the K tones, accumulating i_n and its derivative   (n,N)</span>
+        <span class="cmt">#   phase of the CURRENT lags the voltage tone by angle(Z)</span>
+        return i_n, didt_n</code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Return the steady-state current driven by a sum of K voltage tones of equal amplitude (total RMS σ) at given frequencies and phases, and its exact derivative. It must pass T8: feeding the returned current and derivative to <code>get_delta_V</code> reproduces the sum of voltage tones to machine precision.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.5 · The config block and <code>sample_events</code></h3>
+  <p>Add this to <code>Line_Initial_Conditions.yml</code>. Durations are in milliseconds because that is how every paper states them.</p>
+<pre><code>stage_C:
+  event_mix: {clean: 0.10, drift: 0.15, step: 0.25, dip: 0.25, phase_jump: 0.25}   <span class="cmt"># must sum to 1</span>
+  t_event: [0.05, 0.30]      <span class="cmt"># s, event onset</span>
+  I_level: [0.05, 1.0]       <span class="cmt"># pu, levels before/after; the top is the assumed current limit</span>
+  dip_depth: [0.3, 1.0]      <span class="cmt"># fraction of I0 lost in a dip</span>
+  ramp_fast: [5, 20]         <span class="cmt"># ms, step</span>
+  ramp_down: [5, 10]         <span class="cmt"># ms, dip down</span>
+  hold: [20, 150]            <span class="cmt"># ms, dip hold</span>
+  recovery: [50, 300]        <span class="cmt"># ms, linear recovery</span>
+  phase_jump_deg: [-60, 60]
+  phase_ramp: [2, 10]        <span class="cmt"># ms</span>
+  noise_rms: [0.0, 0.005]    <span class="cmt"># pu, drawn per trajectory (only when noise is on)</span>
+  noise_band: [100, 1000]    <span class="cmt"># Hz</span>
+  noise_tones: 40
+  windows_per_traj: 5
+  hot_frac: 0.5              <span class="cmt"># share of windows placed over the event onset</span>
+  ramp_corner_ms: 1.0        <span class="cmt"># 0 = sharp corners (for the comparison only)</span></code></pre>
+
+  <div class="contract">
+    <div class="row"><div class="k">signature</div><div class="v"><code>sample_events(n) → p</code>, a method of <code>Dataset_Generator</code></div></div>
+    <div class="row"><div class="k">returns</div><div class="v">the <code>(n, 1)</code> tensors <code>event_trajectory</code> needs, plus <code>event (n,)</code> int, <code>ramps (n, 3, 2)</code>: the first and last sample of each fast ramp, corners included (−1 = none), and the noise draws <code>sigma (n,1)</code>, <code>f, psi (n, K)</code></div></div>
+    <div class="row"><div class="k">randomness</div><div class="v">all of it from <code>self._rng</code>, so the CLI's seed still reproduces the file bit for bit</div></div>
+  </div>
+  <div data-tier="guided">
+<pre><code>EVENTS = ["clean", "drift", "step", "dip", "phase_jump"]      <span class="cmt"># module level; index = event code</span>
+
+    def sample_events(self, n):
+        rng, C = self._rng, self.init_cond.stage_C
+        dt, N  = self.line_simulator.dt, self.sensors
+        U     = lambda r: rng.uniform(r[0], r[1], n)
+        steps = lambda r_ms: np.maximum(np.round(U(r_ms) * 1e-3 / dt), 1).astype(int)   <span class="cmt"># ms -&gt; whole samples</span>
+
+        event = rng.choice(len(EVENTS), size=n, p=[C.event_mix[e] for e in EVENTS])
+        I0, I1 = U(C.I_level), U(C.I_level)
+        k_f    = np.round(U(C.t_event) / dt).astype(int)                <span class="cmt"># onset, as a sample index</span>
+
+        <span class="cmt"># slots: (height, start index, length in samples). Unused = height 0.</span>
+        a1, k1, n1 = np.zeros(n), np.zeros(n, int), np.ones(n, int)
+        a2, k2, n2 = np.zeros(n), np.zeros(n, int), np.ones(n, int)
+        dp, kp, np_ = np.zeros(n), np.zeros(n, int), np.ones(n, int)
+
+        m = event == EVENTS.index("drift")
+        a1[m], k1[m], n1[m] = (I1 - I0)[m], 0, N
+        m = event == EVENTS.index("step")
+        a1[m], k1[m], n1[m] = (I1 - I0)[m], k_f[m], steps(C.ramp_fast)[m]
+        m = event == EVENTS.index("dip")
+        I_dip = I0 * (1 - U(C.dip_depth))
+        n_d, n_h, n_r = steps(C.ramp_down), steps(C.hold), steps(C.recovery)
+        a1[m], k1[m], n1[m] = (I_dip - I0)[m], k_f[m], n_d[m]
+        a2[m], k2[m], n2[m] = (I0 - I_dip)[m], (k_f + n_d + n_h)[m], n_r[m]
+        m = event == EVENTS.index("phase_jump")
+        dp[m], kp[m], np_[m] = np.deg2rad(U(C.phase_jump_deg))[m], k_f[m], steps(C.phase_ramp)[m]
+
+        col = lambda x: torch.as_tensor(x, dtype=torch.float64).reshape(-1, 1)
+        p = {"I0": col(I0), "phi0": col(U([-np.pi, np.pi])),
+             "freq_offset": col(U(self.init_cond.ranges.frequency_offset)),
+             "a1": col(a1), "s1": col(k1 * dt), "T1": col(n1 * dt),        <span class="cmt"># indices -&gt; seconds, last moment</span>
+             "a2": col(a2), "s2": col(k2 * dt), "T2": col(n2 * dt),
+             "dphi": col(dp), "sp": col(kp * dt), "Tp": col(np_ * dt)}
+        p["event"] = torch.as_tensor(event)
+
+        <span class="cmt"># [first, last) sample of every FAST ramp, corners included -- for the transition flag</span>
+        n_c   = int(round(C.ramp_corner_ms * 1e-3 / dt))
+        first = np.stack([k1, k2, kp], axis=1)
+        last  = np.stack([k1 + n1, k2 + n2, kp + np_], axis=1) + n_c
+        fast  = (np.stack([a1, a2, dp], axis=1) != 0) &amp; (event != EVENTS.index("drift"))[:, None]
+        p["ramps"] = np.stack([np.where(fast, first, -1), np.where(fast, last, -1)], axis=2)   <span class="cmt"># (n,3,2)</span>
+
+        K = C.noise_tones
+        p["sigma"] = col(U(C.noise_rms) if self.noise else np.zeros(n))
+        p["f"]     = torch.as_tensor(rng.uniform(*C.noise_band, size=(n, K)))
+        p["psi"]   = torch.as_tensor(rng.uniform(0, 2 * np.pi, size=(n, K)))
+        return p</code></pre>
+    <p>Two details. <code>steps()</code> draws n values every time it is called even though only the masked ones are kept — wasteful but deterministic, which is what matters for the seed. And add <code>self.noise = False</code> to <code>__init__</code>; the CLI sets it.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def sample_events(self, n):
+        <span class="cmt"># event code per trajectory: rng.choice with the event_mix probabilities</span>
+        <span class="cmt"># I0, I1, onset k_f (a sample INDEX), phi0, freq_offset</span>
+        <span class="cmt"># three slots (height, start index, length in samples), all zero-height by default</span>
+        <span class="cmt"># fill each event's slots with boolean masks -- see the table in 11.3</span>
+        <span class="cmt"># convert indices to seconds with *dt only when building p</span>
+        <span class="cmt"># ramps (n,3,2): first and last sample of each fast ramp (+ corner), -1 otherwise</span>
+        <span class="cmt"># noise: sigma (0 when self.noise is off), K tone frequencies and phases</span>
+        return p</code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Draw one event per trajectory from the configured mix, and express it as heights, starts and lengths of the three ramp slots, with every start and length a whole number of samples. Also return the sample interval each fast ramp occupies, and the noise draws. All randomness from the generator's seeded stream.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.6 · <code>build_event_set</code> — long trajectories, cut into windows</h3>
+  <p>A dip lasts up to 460 ms, so events cannot be generated inside a 12.5 ms window. Generate whole 0.5 s trajectories, then <strong>cut</strong> training windows out of them. Two things keep that as good as Stage A's independent windows:</p>
+  <ul>
+    <li><strong>Hot windows.</strong> A random window lands on a 5–20 ms ramp only ~5% of the time. Place half of each trajectory's windows so that they contain the event onset.</li>
+    <li><strong>A fresh B per window.</strong> Cut windows inherit their i₀ from the trajectory, so i₀ would be tied to Δv again. Add an independent <code>B·e^(−t/τ)</code> to every window — the kernel trick from §C, per window. It moves i and i₀; it cannot move Δv.</li>
+  </ul>
+  <div class="contract">
+    <div class="row"><div class="k">returns</div><div class="v"><code>(records, meta)</code> like <code>build_training_set</code>: <code>i, delta_v, di/dt (n_win, S)</code>, <code>i0 (n_win,)</code>, <code>t_local (S,)</code>, plus <code>event</code>, <code>transition</code>, <code>start</code> per window</div></div>
+    <div class="row"><div class="k">size</div><div class="v"><code>n_runs</code> keeps meaning "training windows" (5000 = 1000 trajectories × 5), so run tags stay comparable with Stage A</div></div>
+    <div class="row"><div class="k">save</div><div class="v">add <code>"event", "transition", "start"</code> to <code>_INT</code>, or they are stored as float32</div></div>
+  </div>
+  <div data-tier="guided">
+<pre><code>    def event_currents(self, p):
+        """Full-horizon i, di/dt, dv for every trajectory in p: (n, N) each."""
+        sim = self.line_simulator
+        t = (torch.arange(self.sensors, dtype=torch.float64) * sim.dt).reshape(1, -1)
+        i, didt = sim.event_trajectory(p, t, corner=self.init_cond.stage_C.ramp_corner_ms * 1e-3)
+        if self.noise:
+            i_n, didt_n = sim.multisine(p["sigma"], p["f"], p["psi"], t)
+            i, didt = i + i_n, didt + didt_n
+        return i, didt, sim.physics.get_delta_V(i, didt)
+
+    def build_event_set(self):
+        C, S, N = self.init_cond.stage_C, self.S, self.sensors
+        per     = C.windows_per_traj
+        n_traj  = self.n_runs // per
+        p = self.sample_events(n_traj)
+        i, didt, dv = self.event_currents(p)
+
+        <span class="cmt"># where each window starts: uniform, except a hot share placed over the onset</span>
+        starts = self._rng.integers(0, N - S + 1, size=(n_traj, per))
+        n_hot  = int(round(C.hot_frac * per))
+        onset  = np.maximum(p["ramps"][:, 0, 0], p["ramps"][:, 2, 0])      <span class="cmt"># amplitude or phase ramp; -1 if none</span>
+        hot_ok = onset &gt;= 0                                                  <span class="cmt"># clean and drift have no onset</span>
+        hot    = np.clip(onset[:, None] - self._rng.integers(0, S, size=(n_traj, n_hot)), 0, N - S)
+        starts[:, :n_hot] = np.where(hot_ok[:, None], hot, starts[:, :n_hot])
+
+        idx  = torch.as_tensor(starts[..., None] + np.arange(S))         <span class="cmt"># (n_traj, per, S)</span>
+        rows = torch.arange(n_traj)[:, None, None]
+        cut  = lambda x: x[rows, idx].reshape(-1, S)                       <span class="cmt"># (n_traj*per, S)</span>
+        i_w, didt_w, dv_w = cut(i), cut(didt), cut(dv)
+
+        <span class="cmt"># a fresh homogeneous mode per window: moves i and i0, never dv</span>
+        tau = self.line_simulator.physics.t_constant
+        h   = torch.exp(-self.line_simulator.t.double() / tau)                <span class="cmt"># (1,S)</span>
+        B   = torch.as_tensor(self._rng.uniform(*self.init_cond.ranges.beta, size=(n_traj * per, 1)))
+        B   = B * p["I0"].repeat_interleave(per, dim=0)                       <span class="cmt"># relative to the level, as in Stage A</span>
+        i_w, didt_w = i_w + B * h, didt_w - (B / tau) * h
+
+        records = {"i": i_w, "delta_v": dv_w, "di/dt": didt_w, "i0": i_w[:, 0],
+                   "t_local": self.line_simulator.t.squeeze(0),
+                   "event": p["event"].repeat_interleave(per),
+                   "transition": self.in_transition(p["ramps"], starts, per),
+                   "start": torch.as_tensor(starts.reshape(-1))}
+        meta = {**self.build_meta(), "stage": "C", "noise": self.noise, "ramp_corner_ms": C.ramp_corner_ms,
+                "events": EVENTS, "n_traj": n_traj, "stage_C": OmegaConf.to_container(C, resolve=True)}
+        return records, meta</code></pre>
+    <p>And the small helper both builders share — does a window overlap a fast ramp, corners included:</p>
+<pre><code>    def in_transition(self, ramps, starts, per):
+        """ramps (n,3,2) sample intervals; starts (n, per) window starts -&gt; (n*per,) bool."""
+        r  = np.repeat(ramps, per, axis=0)                          <span class="cmt"># (n*per, 3, 2)</span>
+        st = starts.reshape(-1, 1)
+        hit = (r[..., 0] &gt;= 0) &amp; (r[..., 0] &lt; st + self.S) &amp; (r[..., 1] &gt; st)
+        return torch.as_tensor(hit.any(axis=1))</code></pre>
+    <p>Two intervals [a, b) and [c, d) overlap when a &lt; d and c &lt; b — that is the whole test. Drift never counts: its ramp is slow and spans every window, so <code>sample_events</code> leaves it out of <code>ramps</code>.</p>
+  </div>
+  <div data-tier="skeleton">
+<pre><code>    def event_currents(self, p, shape):
+        <span class="cmt"># float64 time grid over the full horizon (N samples)</span>
+        <span class="cmt"># event_trajectory, + multisine when self.noise, -&gt; dv with get_delta_V</span>
+
+    def build_event_set(self):
+        <span class="cmt"># n_traj = n_runs // windows_per_traj ;  p = sample_events(n_traj)</span>
+        <span class="cmt"># i, didt, dv over the full horizon</span>
+        <span class="cmt"># window starts: uniform ints, the first hot_frac of them moved over the onset (step/dip/phase_jump only)</span>
+        <span class="cmt"># fancy-index the (n_traj, per, S) windows out, reshape to (-1, S)</span>
+        <span class="cmt"># per-window B*h added to i, -(B/tau)*h to didt, NOTHING to dv</span>
+        <span class="cmt"># event, transition (window overlaps a fast ramp), start</span>
+        return records, meta</code></pre>
+  </div>
+  <div data-tier="spec">
+    <p>Generate full-horizon event trajectories, cut a fixed number of windows from each (half of them over the event onset where there is one), give every window an independent homogeneous component so the initial current is decoupled from the forcing, and record each window's event type, start and whether it overlaps a fast ramp. It must pass T9.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.7 · <code>build_event_trajectories</code> — the evaluation set, with a shared boundary</h3>
+  <p>Like your <code>build_trajectories</code>: 300 trajectories × 40 windows, seed + 10000, one trajectory-level B, <code>run_id</code> / <code>segment_id</code> so rollout can chain them, plus <code>event</code> and <code>transition</code> per window. And one real change: <strong>consecutive windows share their boundary sample</strong> — window k+1 starts <em>on</em> the last sample of window k (stride S − 1, not S).</p>
+
+  <div class="box b-flag">
+    <span class="lbl">Measured: the handover point must be a training point</span>
+    <p>Today window k+1 starts one dt <em>after</em> window k's last sample, so the handover queries the trunk at t = S·dt — a time it never saw in training (the <code>t_ext</code> trick, §9.2). With the Stage A trunk (Fourier features up to 100 Hz) that one-step extrapolation is harmless. With the features Stage C needs (up to 1 kHz) it is not:</p>
+    <div class="scroll" style="margin-top:10px">
+      <table>
+        <thead><tr><th>prototype (linear branch, 1 seed)</th><th class="n">error on the training grid</th><th class="n">error at t = S·dt</th><th class="n">chained, handover at S·dt</th><th class="n">chained, shared boundary</th></tr></thead>
+        <tbody>
+          <tr><td>F = 4, features to 100 Hz</td><td class="n">1.3e-4</td><td class="n">1.1e-4 (×1)</td><td class="n">1.67e-4</td><td class="n">1.47e-4</td></tr>
+          <tr class="hi"><td>F = 20, features to 1 kHz</td><td class="n">5.6e-5</td><td class="n"><strong>1.1e-3 (×19)</strong></td><td class="n">5.56e-4 · compounding 16×</td><td class="n"><strong>6.3e-5</strong></td></tr>
+          <tr><td>F = 20, with noise</td><td class="n">4.8e-5</td><td class="n">1.8e-3 (×38)</td><td class="n">9.57e-4 · compounding 24×</td><td class="n">1.02e-4</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Same checkpoints in both right-hand columns — nothing retrained. Sharing the boundary makes the handover value the prediction at the window's last training sample, where the loss has pinned it down. It is also how a simulator would chain the block: the sample at a boundary belongs to both windows. With N = 5000 and S = 125, 40 windows at stride 124 still fit (they end at sample 4961).</p>
+    <p>The flag and the file must agree. Scoring a shared-boundary set with the old handover gave compounding 57–195× — the Stage A handover bug in a new costume — which is why the trainer reads the flag from the eval set's metadata instead of from a config key.</p>
+  </div>
+  <div data-tier="guided">
+<pre><code>    def build_event_trajectories(self, n_traj=300):
+        W, S, C = self.W, self.S, self.init_cond.stage_C
+        p = self.sample_events(n_traj)
+        i, didt, dv = self.event_currents(p)
+
+        tau = self.line_simulator.physics.t_constant
+        t   = (torch.arange(self.sensors, dtype=torch.float64) * self.line_simulator.dt).reshape(1, -1)
+        B   = torch.as_tensor(self._rng.uniform(*self.init_cond.ranges.beta, size=(n_traj, 1))) * p["I0"]
+        h   = torch.exp(-t / tau)
+        i, didt = i + B * h, didt - (B / tau) * h                              <span class="cmt"># once per trajectory</span>
+
+        win = lambda x: x.unfold(1, S, S - 1)[:, :W].reshape(-1, S)         <span class="cmt"># stride S-1: shared boundary</span>
+        starts = np.tile(np.arange(W) * (S - 1), (n_traj, 1))                <span class="cmt"># (n_traj, W)</span>
+        records = {"i": win(i), "delta_v": win(dv), "di/dt": win(didt), "i0": win(i)[:, 0],
+                   "t_local": self.line_simulator.t.squeeze(0),
+                   "run_id": torch.arange(n_traj).repeat_interleave(W),
+                   "segment_id": torch.arange(W).repeat(n_traj),
+                   "event": p["event"].repeat_interleave(W),
+                   "transition": self.in_transition(p["ramps"], starts, W)}
+        meta = {**self.build_meta(), "n_runs": n_traj, "stage": "C", "noise": self.noise,
+                "ramp_corner_ms": C.ramp_corner_ms, "events": EVENTS, "shared_boundary": True}
+        return records, meta</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>Your <code>build_trajectories</code>, with <code>event_currents</code> in place of <code>batch</code>, windows at stride S − 1 so neighbours share their boundary sample, one trajectory-level homogeneous term, <code>event</code> / <code>transition</code> per window, and <code>"shared_boundary": True</code> in the metadata. Window k's last row must equal window k+1's first row exactly.</p>
+  </div>
+
+  <h4>The matching change in <code>Line_Evaluate.rollout</code> — three lines</h4>
+  <div data-tier="guided">
+<pre><code>@torch.no_grad()
+def rollout(model, ck, traj, W, feedback=True, device="cpu", shared_boundary=False):
+    t = ck["t_local"]
+    S = t.shape[0]
+    if shared_boundary:                                   <span class="cmt"># next window starts ON the last sample</span>
+        t_q = t.view(1, S, 1)
+    else:                                                 <span class="cmt"># Stage A sets: next window starts one dt later</span>
+        t_q = torch.cat([t, t[-1:] + (t[1] - t[0])]).view(1, S + 1, 1)
+    <span class="cmt"># ... unchanged, but build the trunk from t_q instead of t_ext ...</span>
+        i0 = i_hat[:, S - 1] if shared_boundary else i_hat[:, S]</code></pre>
+    <p>Give <code>rollout_metrics</code> the same keyword and pass it through to both of its <code>rollout</code> calls, and in the trainer read it from the eval set's metadata, so old Stage A files keep their old behaviour:</p>
+<pre><code>            sb = traj_meta.get("shared_boundary", False)
+            rec.update(rollout_metrics(ev_model, ck, traj, W=traj_meta["W"], shared_boundary=sb))</code></pre>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>One keyword on <code>rollout</code> and <code>rollout_metrics</code>: with a shared boundary, query the trunk at the S training times only and hand over the prediction at the last one; without it, keep today's <code>t_ext</code> behaviour. The trainer takes the flag from the eval set's metadata, defaulting to off.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.8 · The tests — T6 to T11</h3>
+  <p>Same deal as §3: each one the moment its function exists. The right-hand column is what this guide's own code returned when pasted into a copy of your repo — so it is what yours should return.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="n">#</th><th>test</th><th>how</th><th class="n">prototype</th></tr></thead>
+      <tbody>
+        <tr><td class="n">T6</td><td><strong>Exact derivative</strong></td><td><code>event_trajectory</code> (+ <code>multisine</code>) at <code>t ± 1e-8</code>, central difference, compared with <code>didt</code> at every sample, corners included (with <code>corner=0</code> you would have to skip the corner samples). The Stage A test used ±dt and hit the 1.6e-4 truncation floor; with 1 kHz tones that floor is ~4e-3, so shrink the step.</td><td class="n">4e-9 rel</td></tr>
+        <tr class="hi"><td class="n">T7</td><td><strong>Round trip, per event</strong></td><td>Integrate the ODE yourself on a grid of dt/20 with the exact exponential step <code>x ← a·x + (1 − a)·dv_mid/R</code>, <code>a = e^(−h/τ)</code>, Δv evaluated at each step's <em>midpoint</em>, so a corner is never sampled on its edge. Compare with <code>i</code> at the samples, for each event type. <code>solve_ivp</code> struggles with Δv jumps; this does not.</td><td class="n">≤ 3.8e-7</td></tr>
+        <tr><td class="n">T8</td><td><strong>Multisine</strong></td><td><code>get_delta_V(i_n, didt_n)</code> equals <code>Σ v·cos(2π fₖ t + ψₖ)</code>, and its RMS is σ.</td><td class="n">2e-15 · RMS/σ 0.93–1.08</td></tr>
+        <tr><td class="n">T9</td><td><strong>Kernel, per window</strong></td><td>After adding the per-window B: <code>get_delta_V(i_w, didt_w) − delta_v</code>.</td><td class="n">3e-17</td></tr>
+        <tr><td class="n">T10</td><td><strong>Physical range</strong></td><td>max |i| ≤ 1.3 pu (the 1 pu level plus up to 0.3·I₀ of homogeneous term — same as Stage A); max |Δv| ≈ 0.16 pu; event counts match the mix; share of windows in a transition.</td><td class="n">1.28 pu · 0.16 pu · 10/15/25/25/25 % · 37% train, 12% eval</td></tr>
+        <tr class="hi"><td class="n">T11</td><td><strong>Linear floor</strong></td><td>The best linear map from branch inputs to current, by least squares on the training windows, scored on held-out windows. The error a linear branch <em>cannot</em> beat — before you train anything.</td><td class="n">2e-14 · (corner=0: 8e-7) · Stage A: 2e-16</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>T11 is new, and it is the most useful thing in this section.</strong> It is ten lines of numpy, runs in two seconds, and splits every future disappointment into one of two kinds. If a trained model sits far above the floor, the problem is optimisation — epochs, patience, learning rate, trunk features. If it sits near the floor, no amount of training will help; the data or the branch inputs have to change. That is exactly how the sharp-corner problem above was found.</p>
+<pre><code>def linear_floor(records, val_frac=0.15, seed=0):
+    """Best any linear branch could do on these windows: least squares, scored on held-out rows."""
+    X = np.c_[records["i0"].numpy(), records["delta_v"].numpy(), np.ones(len(records["i0"]))]
+    Y = records["i"].numpy()
+    perm = np.random.default_rng(seed).permutation(len(X))
+    n_val = int(round(val_frac * len(X)))
+    val, train = perm[:n_val], perm[n_val:]
+    beta, *_ = np.linalg.lstsq(X[train], Y[train], rcond=None)
+    return float(((X[val] @ beta - Y[val]) ** 2).mean())             <span class="cmt"># same units as val MSE(i)</span></code></pre>
+  <p>It works on the records straight from <code>build_event_set</code>, or on a file from <code>load_dataset</code>. Put the result in the record next to <code>val_i</code> and you always know how far from the ceiling a run is.</p>
+
+  <hr class="rule">
+
+  <h3>11.9 · Scoring per event — <code>metrics_by_event</code></h3>
+  <p>One number over all events hides everything that matters here: a model can be excellent on the 10% of clean trajectories and bad on dips. Report one chained error per event type (the way the PLL's F32 split clean / sag / jump), and split the <em>per-window</em> error into windows that overlap a fast ramp and steady ones — that is where a fault's difficulty shows.</p>
+  <div data-tier="guided">
+<pre><code>def metrics_by_event(model, ck, traj, W, events, shared_boundary=False, device="cpu"):
+    S = ck["t_local"].shape[0]
+    truth    = traj["i"].float().view(-1, W, S).to(device)
+    chained  = rollout(model, ck, traj, W, feedback=True,  device=device, shared_boundary=shared_boundary)
+    assisted = rollout(model, ck, traj, W, feedback=False, device=device, shared_boundary=shared_boundary)
+
+    run_err = (chained - truth).pow(2).mean(dim=(1, 2)).sqrt()          <span class="cmt"># (R,)  one per trajectory</span>
+    run_ev  = traj["event"].view(-1, W)[:, 0].to(device)                  <span class="cmt"># one event per trajectory</span>
+    out = {f"chained_{name}": float(run_err[run_ev == k].mean())
+           for k, name in enumerate(events) if (run_ev == k).any()}
+
+    win_err = (assisted - truth).pow(2).mean(dim=2).sqrt()              <span class="cmt"># (R,W)  operator alone</span>
+    moving  = traj["transition"].view(-1, W).bool().to(device)
+    out["assisted_transition_windows"] = float(win_err[moving].mean())
+    out["assisted_steady_windows"]     = float(win_err[~moving].mean())
+    return out</code></pre>
+    <p>And in <code>Line_trainer.fit</code>, right after <code>rollout_metrics</code>:</p>
+<pre><code>            if "event" in traj:
+                rec.update(metrics_by_event(ev_model, ck, traj, W=traj_meta["W"], events=traj_meta["events"],
+                                            shared_boundary=sb))</code></pre>
+    <p>The keys are flat on purpose: <code>plot_sweep.py metric=chained_dip</code> then works with no changes.</p>
+  </div>
+  <div data-tier="skeleton spec">
+    <p>From one chained and one assisted rollout, return the chained error averaged within each event type, and the assisted per-window error averaged over windows that overlap a fast ramp and windows that do not. Flat keys, so the sweep plot can use any of them as <code>metric=</code>. Stage A eval sets have no <code>event</code> key; the trainer skips the call for them.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h3>11.10 · Order of work, what I wire, and what to expect</h3>
+  <ol>
+    <li><code>soft_step</code> + <code>ramp</code>. T6 on the ramp alone, corners included. Check it ends at exactly 1 and its steepest slope is <code>1/length</code>.</li>
+    <li><code>event_trajectory</code>. With every height zero it must equal your <code>trajectory()</code> at <code>envelope_rate = 0, B = 0</code>.</li>
+    <li><code>multisine</code>. T8.</li>
+    <li>The yml block, <code>sample_events</code>, <code>event_currents</code>. T6 on the full current, T7 per event, T10.</li>
+    <li><code>in_transition</code>, <code>build_event_set</code>. T9, then <strong>T11 before anything trains</strong>.</li>
+    <li><code>build_event_trajectories</code>: stitching one trajectory's windows back together reproduces it.</li>
+    <li><code>metrics_by_event</code> and its call in the trainer. And the early-stopping fix from Notes F13 — <code>min_epochs</code>, or stopping on a smoothed validation loss — because Stage C losses are noisier than Stage A's.</li>
+  </ol>
+
+  <div class="box b-ref">
+    <span class="lbl">My part, once T6–T11 pass</span>
+    <p><code>CLI_Dataset.py stage=C noise=false|true</code> writing <code>line_stage_C[_noise].npz</code> and its <code>_traj</code> file, with the same seed rules as now; <code>plot_run.py</code> panels per event type with the transition windows shaded; the linear floor written into every record next to <code>val_i</code>. Tell me when you are there.</p>
+  </div>
+
+  <h4>What the prototype got — a ballpark for your first runs</h4>
+  <p>My scratch implementation of this design (it draws the same trajectories as the guide's code for the same seed), trained through your trainer. One seed each, linear branch unless stated, 1500–3000 epochs — read these as "the right order of magnitude", not as results. Chained error over 0.5 s; "worst event" is the event type with the highest chained error.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>ramps</th><th>branch</th><th>trunk features</th><th class="n">chained error</th><th class="n">worst event</th><th>note</th></tr></thead>
+      <tbody>
+        <tr><td>sharp corners</td><td>tanh</td><td>F = 4</td><td class="n">2.0e-3</td><td class="n">phase jump 2.4e-3</td><td>—</td></tr>
+        <tr><td>sharp corners</td><td>linear</td><td>F = 4</td><td class="n">5.5e-4</td><td class="n">dip 7.9e-4</td><td>stuck at the 8e-7 floor</td></tr>
+        <tr><td>1 ms corners</td><td>tanh</td><td>F = 4</td><td class="n">9.1e-4</td><td class="n">phase jump 1.2e-3</td><td>overfits: train 8.6e-7, val 2.3e-5</td></tr>
+        <tr><td>1 ms corners</td><td>linear</td><td>F = 4</td><td class="n">1.5e-4</td><td class="n">phase jump 1.8e-4</td><td>shared boundary</td></tr>
+        <tr class="hi"><td>1 ms corners</td><td>linear</td><td>F = 20, to 1 kHz</td><td class="n"><strong>6.3e-5</strong></td><td class="n">phase jump 9.3e-5</td><td>shared boundary; clean 2.6e-5</td></tr>
+        <tr><td>1 ms corners + noise</td><td>linear</td><td>F = 4</td><td class="n">1.7e-4</td><td class="n">all ≈ 1.7e-4</td><td>shared boundary</td></tr>
+        <tr><td>1 ms corners + noise</td><td>linear</td><td>F = 20, to 1 kHz</td><td class="n">1.0e-4</td><td class="n">phase jump 1.2e-4</td><td>shared boundary; clean 7.1e-5</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>What stands out, with the caveat of one seed:</p>
+  <ul>
+    <li><strong>The linear branch still wins</strong> — 6× over tanh at equal trunk (1.5e-4 vs 9.1e-4) — and tanh now overfits, with a 28× gap between train and validation. More input directions give it more room to go wrong.</li>
+    <li><strong>Trunk features up to 1 kHz help 2–3×</strong>, but only together with the shared boundary (§11.7); without it they made things worse.</li>
+    <li><strong>Noise costs about 1.6×</strong> on the best setting (6.3e-5 → 1.0e-4), mostly on clean trajectories. That is the price of seeing the directions a harmonic lives in; experiment 4 says whether it paid.</li>
+    <li>Against Stage A's 1.0e-5, Stage C is ~6× harder at best, and it is the phase jumps and dips that set the number — exactly why it is reported per event.</li>
+  </ul>
+  <p>Suggested default for Stage C runs: <code>model.branch_act=linear model.F=20 model.max_freq=6283 epochs=3000</code>. Both F runs stopped early near epoch 2000, so they had room left.</p>
+
+  <h4>The first experiments, in order — three seeds each</h4>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="n">#</th><th>question</th><th>sweep</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td>Does the trunk need features up to 1 kHz? The rounded corners and the noise both live there (prototype: yes, 2–3×).</td><td><code>model.F=4 model.max_freq=628</code> vs <code>model.F=20 model.max_freq=6283</code> — two commands, since the two keys move together</td></tr>
+        <tr><td class="n">2</td><td>Does the linear branch still beat tanh when inputs span 13–27 directions instead of 5?</td><td><code>'model.branch_act=[tanh,linear]'</code></td></tr>
+        <tr><td class="n">3</td><td>Does noise help or hurt the clean-event error?</td><td><code>dataset=line_stage_C.npz</code> vs <code>line_stage_C_noise.npz</code>, both scored on both eval sets</td></tr>
+        <tr><td class="n">4</td><td>Has the harmonic failure gone? (Notes F11: +5% 5th harmonic gave 6.7e-2.)</td><td>rerun the OOD test on the noise-trained model</td></tr>
+        <tr><td class="n">5</td><td>Only then: the hybrid branch (linear path + zero-initialised tanh MLP) — its cost, measured where the inputs are rich.</td><td>new <code>branch_act</code> value</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Report every one of them per event, and put the linear floor next to each number. Stage A taught the lesson twice over: one number over everything hides where the model fails, and a number without a ceiling next to it cannot tell you whether to train longer or rethink the data.</p>
+</section>
+
 </div>
 
 <script>
@@ -1442,6 +2051,11 @@ if __name__ == "__main__":
 
   btns.forEach(function (b) {
     b.addEventListener("click", function () { set(b.dataset.set); });
+  });
+
+  // .eq blocks keep their line breaks (white-space: pre); drop the blank first/last line
+  Array.prototype.forEach.call(document.querySelectorAll(".eq"), function (e) {
+    e.innerHTML = e.innerHTML.replace(/^\s*\n/, "").replace(/\n\s*$/, "");
   });
 
   var saved = null;

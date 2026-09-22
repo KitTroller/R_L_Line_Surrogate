@@ -1,0 +1,42 @@
+# exp01 -- the 2x2 comb test on Stage A. 4 cells x 4 seeds = 16 jobs, all on one GPU type.
+#
+# The trunk's Fourier comb is max_freq*k/F, k = 1..F, so its LOWEST feature is also its
+# SPACING (max_freq/F) and its TOP is max_freq. The PLL found the lowest feature controls
+# and the top is irrelevant (PLL notes F51, F56). Stage A's current has 99.99% of its power
+# below 339 rad/s and ~4e-6 pu above 628 (graphs/dft_line_stage_A.png), so:
+#
+#     prediction if the BOTTOM matters:  lowest 314 beats lowest 157, the top does not matter
+#     prediction if the TOP matters:     top 6283 beats top 628
+#
+#                     top 628          top 6283
+#     lowest 157      F=4,  mf=628     F=40, mf=6283
+#     lowest 314      F=2,  mf=628     F=20, mf=6283
+#
+# Judge on assisted_error_rms (per window). The chained number is hurt at high F by the
+# t = S*dt handover (Notes F16) until the shared-boundary eval sets exist.
+#
+# The F=4 cell is rerun here even though laptop runs exist: those were MPS, these are CUDA,
+# and seeds from different devices are different draws. Everything lands in its own
+# results_dir so it cannot overwrite a laptop record with the same tag.
+#
+# Read with:  python src/analysis/plot_dft.py sweeps=sweeps_comb_gpu
+
+model.branch_act=linear model.F=4  model.max_freq=628  epochs=3000 seed=0 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=4  model.max_freq=628  epochs=3000 seed=1 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=4  model.max_freq=628  epochs=3000 seed=2 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=4  model.max_freq=628  epochs=3000 seed=3 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+
+model.branch_act=linear model.F=40 model.max_freq=6283 epochs=3000 seed=0 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=40 model.max_freq=6283 epochs=3000 seed=1 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=40 model.max_freq=6283 epochs=3000 seed=2 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=40 model.max_freq=6283 epochs=3000 seed=3 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+
+model.branch_act=linear model.F=2  model.max_freq=628  epochs=3000 seed=0 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=2  model.max_freq=628  epochs=3000 seed=1 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=2  model.max_freq=628  epochs=3000 seed=2 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=2  model.max_freq=628  epochs=3000 seed=3 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+
+model.branch_act=linear model.F=20 model.max_freq=6283 epochs=3000 seed=0 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=20 model.max_freq=6283 epochs=3000 seed=1 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=20 model.max_freq=6283 epochs=3000 seed=2 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu
+model.branch_act=linear model.F=20 model.max_freq=6283 epochs=3000 seed=3 results_dir=sweeps_comb_gpu runs_dir=runs_comb_gpu

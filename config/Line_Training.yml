@@ -3,7 +3,7 @@ val_frac: 0.15
 seed: 0
 split_seed: 0
 epochs: 800
-patience: 40
+patience: 150
 batch_size: 512
 lr: 3.0e-3
 w_phys: 0.3

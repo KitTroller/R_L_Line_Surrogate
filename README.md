@@ -8,7 +8,9 @@ This is the first rung of a ladder toward a neural surrogate of the full convert
 which is exactly why it comes first: every part of the pipeline can be checked against ground
 truth before that stops being possible.
 
-**Status: v1 (2026-09-17)** — Stage A (steady state) pipeline complete and tested.
+**Status (2026-09-21):** Stage A (steady state) closed. With a linear branch the chained error
+over 0.5 s is 1.0e-5 pu (3 seeds), 94x better than the tanh branch. Stage C (faults and noise)
+is designed and prototype-checked; implementation is next. See `docs/Notes.md`.
 
 ---
 
@@ -53,6 +55,13 @@ An unstacked DeepONet (`src/Line_Operator.py`):
 Loss = MSE on `i` + `w_phys` x the normalised physics residual `di/dt + i/tau - dv/ell`
 (autograd through the trunk), optimised with SOAP.
 
+Two switches, both part of the run tag:
+
+| flag | effect | tag |
+|---|---|---|
+| `model.branch_act=linear` | identity activations in the branch. The line's operator is linear in `(i0, dv)`, so this is the right inductive bias here — not for a nonlinear block. | `_blinear` |
+| `model.hard_ic=true` | `i = i0 + (t/T_w) * G(...)`: the initial condition holds exactly | `_hic` |
+
 At deployment the operator is **chained**: the predicted current at the end of one window
 (t = S*dt) becomes the next window's `i0`.
 
@@ -79,7 +88,8 @@ docs/
   Line_Generator_Build.html     step-by-step build guide (open in a browser)
 graphs/                         figures, one folder per run
 sweeps/                         one JSON record per run (tracked)
-data/, runs/                    datasets and checkpoints (not tracked, regenerable)
+sweeps_overfit/                 records of the overfit tests, kept apart (tracked)
+data/, runs/, runs_overfit/     datasets and checkpoints (not tracked, regenerable)
 ```
 
 ## Quickstart
@@ -100,11 +110,14 @@ python src/CLI_Dataset.py seed=0
 Writes `data/line_stage_A.npz` (5000 training windows) and `data/line_stage_A_traj.npz`
 (300 evaluation trajectories, seed + 10000).
 
-**2. Train.** About one minute on an M1 Max.
+**2. Train.** A few minutes on an M1 Max.
 
 ```bash
-python src/CLI_Train.py
+python src/CLI_Train.py model.branch_act=linear epochs=3000
 ```
+
+Without `model.branch_act=linear` you get the v1 tanh branch (about one minute, ~100x less
+accurate).
 
 Any config key can be overridden with `key=value`, nested keys with dots:
 
@@ -128,7 +141,14 @@ configuration per job.
 ```bash
 python src/analysis/plot_run.py                  # newest checkpoint; or tag=<run tag>
 python src/analysis/plot_sweep.py x=w_phys       # metric vs a config key, every seed shown
+python src/analysis/plot_sweep.py x=branch_act 'match=[line_stage_A_n5000,_wp0.3_]' exclude=_hic
 ```
+
+`match=` keeps runs whose tag contains every listed string, `exclude=` drops runs containing any.
+The sweep plot refuses runs that differ in anything other than `x` and the seed.
+
+Runs that differ only in `lr`, `epochs` or `patience` get the same tag and would overwrite each
+other; send them elsewhere with `results_dir=... runs_dir=...` (as the overfit tests do).
 
 ## What a run produces
 
@@ -147,24 +167,32 @@ The rollout metrics:
 | `predicted_error_max` | the worst trajectory |
 | `compounding` | predicted / assisted — the cost of chaining |
 
-## v1 reference result
+## Stage A results
 
-Default configuration, seed 0, one run (see `docs/Notes.md` for the tests and caveats):
+Median of seeds 0, 1, 2; 25,408 parameters. Errors in pu, RMS over the 300 held-out trajectories.
 
-| | |
-|---|---|
-| parameters | 25,408 |
-| training | 59 s, early stop at epoch 497 |
-| assisted error (RMS) | 5.8e-4 pu |
-| predicted error over 0.5 s, 40 windows (RMS) | **1.1e-3 pu** |
-| compounding | 1.9x |
+| branch | predicted error, 0.5 s chained | assisted error | compounding |
+|---|---|---|---|
+| tanh (v1) | 9.7e-4 | 4.8e-4 | 2.0x |
+| tanh + hard IC | 6.9e-4 | 4.7e-4 | 1.3x |
+| **linear** | **1.0e-5** | 7.5e-6 | 1.4x |
+
+The linear result needs `epochs=3000` and `patience=150` (the default). The caveat that matters:
+Stage A inputs span only ~5 directions, so this is accuracy on a narrow family of waveforms. A
+model trained on it still fails on a harmonic it never saw. Stage C exists to fix that. Findings
+F1-F14 with their evidence are in `docs/Notes.md`.
 
 ## Roadmap
 
-- **Stage A** — steady state: done (v1).
-- **Stage B** — slowly varying amplitude (`envelope_rate` on).
-- **Stage C** — faults: fast forced current decay, from converter simulator profiles.
-- **Next rung** — line coupled to the SRF-PLL, where the problem becomes nonlinear and three-phase.
+- **Stage A** — steady state: closed (2026-09-21).
+- **Stage B** — slowly varying amplitude: folded into Stage C as the `drift` event.
+- **Stage C** — events built from straight ramps with 1 ms rounded corners (exact derivatives):
+  clean, drift, step, dip + linear recovery, phase jump; plus band-limited white noise in `dv`
+  generated as a multisine. Evaluation windows share their boundary sample so the handover point
+  is a training point. Each event type scored separately. A prototype of the design reached
+  6.3e-5 pu chained error (1 seed). Build guide §11; findings F15-F16.
+- **Next rung** — the line in the PLL's dq frame, or the PLL itself, where the operator is no longer
+  linear. Candidate branch: a linear path plus a zero-initialised tanh MLP.
 
 ## References
 
